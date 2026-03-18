@@ -1,0 +1,13 @@
+# orders_management cron template
+CRON_TZ=Asia/Shanghai
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# 每 30 分钟：订单核心流程
+*/30 * * * * cd /home/wonderlab/pytask && bash subprojects/orders_management/run.sh core >> /home/wonderlab/pytask/logs/orders_management.log 2>&1
+
+# 每日 SKU 同步
+20 2 * * * cd /home/wonderlab/pytask && bash subprojects/orders_management/run.sh tiktok_sku_sync >> /home/wonderlab/pytask/logs/orders_management.log 2>&1
+
+# 每日 dry-run 预检查
+10 1 * * * cd /home/wonderlab/pytask && bash subprojects/orders_management/run.sh dry-run all >> /home/wonderlab/pytask/logs/orders_management.log 2>&1

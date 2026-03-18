@@ -1,0 +1,13 @@
+# ads_report cron template
+CRON_TZ=Asia/Shanghai
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# 每日渠道核心报表
+30 3 * * * cd /home/wonderlab/pytask && bash subprojects/ads_report/run.sh core >> /home/wonderlab/pytask/logs/ads_report.log 2>&1
+
+# 每日海外渠道链路
+45 4 * * * cd /home/wonderlab/pytask && bash subprojects/ads_report/run.sh global >> /home/wonderlab/pytask/logs/ads_report.log 2>&1
+
+# 每周全量 dry-run
+20 6 * * 0 cd /home/wonderlab/pytask && bash subprojects/ads_report/run.sh dry-run all >> /home/wonderlab/pytask/logs/ads_report.log 2>&1

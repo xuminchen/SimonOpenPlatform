@@ -1,0 +1,7 @@
+requests
+pandas
+pymysql
+python-dateutil
+pytz
+requests-oauthlib
+

@@ -1,0 +1,9 @@
+requests
+pandas
+pymysql
+google-auth
+google-auth-oauthlib
+google-api-python-client
+urllib3
+python-dateutil
+

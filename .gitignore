@@ -1,0 +1,63 @@
+### MicrosoftOffice template
+*.tmp
+
+# Word temporary
+~$*.doc*
+
+# Word Auto Backup File
+Backup of *.doc*
+
+# Excel temporary
+~$*.xls*
+*.csv
+!template.xlsx
+# Excel Backup File
+*.xlk
+
+# PowerPoint temporary
+~$*.ppt*
+
+# Visio autosave temporary files
+*.~vsd*
+
+### Example user template template
+### Example user template
+
+# IntelliJ project files
+.idea
+*.iml
+out
+gen
+
+# Python cache/artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+venv/
+*/venv/
+
+# OS/editor junk
+.DS_Store
+
+# Runtime outputs
+*.log
+*.out
+runtime/logs/*
+runtime/cache/*
+runtime/reports/*
+!runtime/logs/.gitkeep
+!runtime/cache/.gitkeep
+!runtime/reports/.gitkeep
+
+# Local API credential file
+config/api_credentials.json
+webapp_data/*.db
+
+# Binary/archive artifacts
+*.jar
+*.zip
+
+# Frontend workspace artifacts
+frontend/node_modules/

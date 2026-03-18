@@ -1,0 +1,40 @@
+[tasks.tiktokshop_orders]
+script = "subprojects/orders_management/TiktokShop/BusinessFunc/SearchOrdersList.py"
+group = "tiktok_shop"
+description = "TikTok Shop order list pull."
+
+[tasks.tiktok_sku_sync]
+script = "subprojects/orders_management/tiktok_package/tiktok_sku.py"
+group = "tiktok_shop"
+description = "TikTok SKU sync."
+
+[tasks.wechat_order_sync]
+script = "subprojects/orders_management/wechatShop/searchOrderList.py"
+group = "wechat_shop"
+description = "WeChat shop order sync (commerce related)."
+
+[tasks.kwai_orders]
+script = "subprojects/orders_management/kwai_v3/kwai_run.py"
+group = "external"
+description = "Kwai order-related pipeline."
+
+[tasks.shopify_orders]
+script = "subprojects/orders_management/shopify/orders_information.py"
+group = "external"
+description = "Shopify orders information sync."
+
+[tasks.shopify_order_sku]
+script = "subprojects/orders_management/shopify/order_sku.py"
+group = "external"
+description = "Shopify order SKU sync."
+
+[tasks.shopify_customers]
+script = "subprojects/orders_management/shopify/customers_information.py"
+group = "external"
+description = "Shopify customer data sync."
+
+[profiles]
+core = ["tiktokshop_orders"]
+orders = ["tiktokshop_orders", "wechat_order_sync"]
+external = ["kwai_orders", "shopify_orders", "shopify_order_sku", "shopify_customers"]
+all = ["tiktokshop_orders", "tiktok_sku_sync", "wechat_order_sync"]

@@ -1,0 +1,373 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    margin: 0;
+    padding: 0;
+    min-height: 100%;
+  }
+
+  :root {
+    --brand: #0000e1;
+    --brand-hover: #0000c4;
+    --brand-soft: rgba(0, 0, 225, 0.08);
+    --text-strong: #0f172a;
+    --text-normal: #1e293b;
+    --text-muted: #64748b;
+    --line-strong: #cbd5e1;
+    --line-normal: #e2e8f0;
+    --line-soft: #f1f5f9;
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --radius-min: 2px;
+  }
+
+  body {
+    @apply m-0 min-h-screen text-slate-900;
+    background: #f4f6f8;
+    font-family: "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  * {
+    @apply box-border;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-sm bg-white;
+    border: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+  }
+
+  .section-block {
+    @apply rounded-sm bg-white;
+    border: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+    padding: var(--space-4);
+  }
+
+  .panel-title {
+    @apply m-0 text-base font-semibold text-slate-900;
+    font-family: "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+    letter-spacing: 0.01em;
+  }
+
+  .panel-subtitle {
+    @apply mt-1 text-sm text-slate-500;
+  }
+
+  .btn-brand {
+    @apply rounded-sm px-3 py-2 text-sm font-semibold text-white transition;
+    border: 1px solid var(--brand);
+    background: var(--brand);
+    font-family: "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+    box-shadow: 0 4px 14px rgba(0, 0, 225, 0.3);
+  }
+
+  .btn-brand:hover {
+    background: var(--brand-hover);
+    border-color: var(--brand-hover);
+    box-shadow: 0 6px 16px rgba(0, 0, 225, 0.35);
+  }
+
+  .btn-subtle {
+    @apply rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 transition hover:border-slate-400 hover:bg-white;
+    font-family: "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  .btn-ghost-brand {
+    @apply rounded-sm border bg-white px-3 py-2 text-sm font-semibold transition;
+    border-color: var(--brand);
+    color: var(--brand);
+    font-family: "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  .btn-ghost-brand:hover {
+    background: var(--brand-soft);
+  }
+
+  .input-base {
+    @apply w-full rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:ring-1;
+    --tw-ring-color: var(--brand);
+    font-family: "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  .input-base:focus {
+    border-color: var(--brand);
+  }
+
+  .status-pill {
+    @apply inline-flex rounded-sm px-2 py-0.5 text-xs font-semibold text-white;
+    font-family: "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+    letter-spacing: 0.01em;
+  }
+
+  .mono-ui {
+    font-family: "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  .tab-minimal {
+    @apply border-b-2 border-transparent px-0 py-2 text-sm text-slate-500 transition;
+    font-family: "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  .tab-minimal.active {
+    @apply text-slate-900;
+    border-color: var(--brand);
+  }
+
+  .nav-item {
+    @apply rounded-sm border px-3 py-2 text-left text-sm transition;
+    border-color: transparent;
+    border-left-width: 3px;
+    border-left-color: transparent;
+    color: #475569;
+    background: transparent;
+    font-family: "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  .nav-item:hover {
+    background: transparent;
+    color: var(--brand);
+    border-color: transparent;
+    border-left-color: var(--brand);
+  }
+
+  .nav-item.active {
+    color: var(--brand);
+    background: transparent;
+    border-color: transparent;
+    border-left-color: var(--brand);
+  }
+
+  .field-label {
+    @apply text-sm text-slate-600;
+    font-family: "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  .table-shell {
+    @apply w-full border-collapse;
+    font-size: 13px;
+  }
+
+  .table-head-row {
+    @apply bg-white text-left text-slate-500;
+  }
+
+  .table-head-cell {
+    @apply border-b border-slate-200 px-3 py-2 font-medium;
+    font-family: "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  .table-cell {
+    @apply border-b border-slate-100 px-3 py-2 text-slate-700;
+  }
+
+  .batch-action-bar {
+    position: fixed;
+    left: 50%;
+    bottom: 40px;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    min-width: 360px;
+    max-width: min(90vw, 760px);
+    padding: 12px 24px;
+    border-radius: 9999px;
+    background: #1e293b;
+    color: #ffffff;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    transform: translateX(-50%) translateY(20px);
+    opacity: 0;
+    pointer-events: none;
+    will-change: transform, opacity;
+    transition: all 0.25s ease-out;
+  }
+
+  .batch-action-bar.is-visible {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .context-action-count-number {
+    display: inline-block;
+    font-weight: 800;
+    color: #0000e1;
+    animation: context-action-count-pop 220ms ease-out;
+  }
+
+  .context-action-right {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .batch-delete-btn {
+    border: 0;
+    background: transparent;
+    color: #ef4444;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 4px 8px;
+    transition: all 0.2s;
+  }
+
+  .batch-delete-btn:hover {
+    background-color: rgba(239, 68, 68, 0.1);
+  }
+
+  .batch-delete-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .action-divider {
+    width: 1px;
+    height: 20px;
+    background: #475569;
+  }
+
+  .context-action-close {
+    border: 0;
+    background: transparent;
+    color: #cbd5e1;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    padding: 0;
+  }
+
+  .context-action-close:hover {
+    color: #ffffff;
+  }
+
+  .action-cell-group {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    justify-content: center;
+    position: relative;
+  }
+
+  .action-btn {
+    color: #0000e1;
+    text-decoration: none;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 0;
+    background: transparent;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    font-size: 13px;
+    line-height: 1.2;
+  }
+
+  .action-btn:hover {
+    background-color: #f1f5f9;
+    color: #1e293b;
+  }
+
+  .action-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .sync-icon {
+    display: inline-block;
+    font-size: 12px;
+    line-height: 1;
+    margin-right: 4px;
+  }
+
+  .sync-icon.spinning {
+    animation: token-refresh-spin 900ms linear infinite;
+  }
+
+  .token-popconfirm {
+    position: absolute;
+    right: 88px;
+    top: -80px;
+    width: 280px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #ffffff;
+    padding: 10px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+    z-index: 40;
+  }
+
+  .more-action-menu {
+    position: absolute;
+    right: 0;
+    top: 24px;
+    min-width: 108px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+    overflow: hidden;
+    z-index: 35;
+  }
+
+  .more-action-item {
+    width: 100%;
+    border: 0;
+    background: #ffffff;
+    text-align: left;
+    padding: 8px 10px;
+    font-size: 13px;
+    color: #334155;
+    cursor: pointer;
+  }
+
+  .more-action-item:hover {
+    background: #f8fafc;
+  }
+
+  .appauth-table .table-head-cell,
+  .appauth-table .table-cell {
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  .appauth-pagination .input-base {
+    text-align: center;
+  }
+}
+
+@keyframes context-action-count-pop {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes token-refresh-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}

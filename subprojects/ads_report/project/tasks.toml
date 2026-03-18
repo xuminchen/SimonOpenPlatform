@@ -1,0 +1,29 @@
+[tasks.red_juguang]
+script = "subprojects/ads_report/red/JuGuang.py"
+group = "red"
+description = "Red channel Juguang data pull."
+
+[tasks.xingtu]
+script = "subprojects/ads_report/xingtu/dataInterface.py"
+group = "xingtu"
+description = "Xingtu data pull."
+
+[tasks.tencent]
+script = "subprojects/ads_report/TencentAdvertised/getReport.py"
+group = "tencent"
+description = "Tencent ads report."
+
+[tasks.meta]
+script = "subprojects/ads_report/meta/api_meta_breakdown_basic.py"
+group = "meta"
+description = "Meta ads breakdown."
+
+[profiles]
+core = ["red_juguang", "xingtu", "tencent", "meta"]
+global = ["meta"]
+all = [
+  "red_juguang",
+  "xingtu",
+  "tencent",
+  "meta",
+]
