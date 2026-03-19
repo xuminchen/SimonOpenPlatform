@@ -18,7 +18,6 @@
 - `bash subprojects/ads_report/run.sh dry-run all`
 
 ## 代码来源目录
-- `subprojects/ads_report/red/*.py`
 - `subprojects/ads_report/xingtu/*.py`
 - `subprojects/ads_report/TencentAdvertised/*.py`
 - `subprojects/ads_report/meta/*.py`

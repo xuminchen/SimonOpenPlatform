@@ -12,7 +12,7 @@
 - 目标：统一编排多渠道广告平台报表任务。
 - 规范入口：`subprojects/ads_report/project/unified_runner.py`
 - 关键 profile：`core`、`global`、`all`
-- 主要代码目录：`subprojects/ads_report/red`、`subprojects/ads_report/xingtu`、`subprojects/ads_report/TencentAdvertised`、`subprojects/ads_report/meta`
+- 主要代码目录：`subprojects/ads_report/xingtu`、`subprojects/ads_report/TencentAdvertised`、`subprojects/ads_report/meta`
 
 ## orders_management 订单管理域
 - 目标：统一编排 TikTok/微信小店/Kwai/Shopify 订单与交易相关 API 流程。

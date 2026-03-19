@@ -1,8 +1,3 @@
-[tasks.red_juguang]
-script = "subprojects/ads_report/red/JuGuang.py"
-group = "red"
-description = "Red channel Juguang data pull."
-
 [tasks.xingtu]
 script = "subprojects/ads_report/xingtu/dataInterface.py"
 group = "xingtu"
@@ -19,10 +14,9 @@ group = "meta"
 description = "Meta ads breakdown."
 
 [profiles]
-core = ["red_juguang", "xingtu", "tencent", "meta"]
+core = ["xingtu", "tencent", "meta"]
 global = ["meta"]
 all = [
-  "red_juguang",
   "xingtu",
   "tencent",
   "meta",
