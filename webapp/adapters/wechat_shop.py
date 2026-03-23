@@ -20,11 +20,18 @@ class WechatShopAdapter:
 
     @staticmethod
     def _resolve_window(start_date: str | None, end_date: str | None) -> tuple[int, int]:
+        max_day = (datetime.datetime.now() - datetime.timedelta(days=1)).date()
         if start_date and end_date:
             start_dt = datetime.datetime.strptime(start_date, "%Y-%m-%d").replace(hour=0, minute=0, second=0)
             end_dt = datetime.datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
         else:
             end_dt = (datetime.datetime.now() - datetime.timedelta(days=1)).replace(hour=23, minute=59, second=59)
+            start_dt = end_dt.replace(hour=0, minute=0, second=0)
+        if start_dt.date() > max_day:
+            start_dt = datetime.datetime.combine(max_day, datetime.time(0, 0, 0))
+        if end_dt.date() > max_day:
+            end_dt = datetime.datetime.combine(max_day, datetime.time(23, 59, 59))
+        if start_dt > end_dt:
             start_dt = end_dt.replace(hour=0, minute=0, second=0)
         return int(start_dt.timestamp()), int(end_dt.timestamp())
 

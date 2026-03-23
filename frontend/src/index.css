@@ -14,8 +14,8 @@
   }
 
   :root {
-    --brand: #0000e1;
-    --brand-hover: #0000c4;
+    --brand: #0000E1;
+    --brand-hover: #0000C4;
     --brand-soft: rgba(0, 0, 225, 0.08);
     --text-strong: #0f172a;
     --text-normal: #1e293b;
@@ -44,13 +44,15 @@
 
 @layer components {
   .card {
-    @apply rounded-sm bg-white;
+    @apply rounded-sm;
+    background: #F0EFEC;
     border: none;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
   }
 
   .section-block {
-    @apply rounded-sm bg-white;
+    @apply rounded-sm;
+    background: #F0EFEC;
     border: none;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
     padding: var(--space-4);
@@ -81,12 +83,14 @@
   }
 
   .btn-subtle {
-    @apply rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 transition hover:border-slate-400 hover:bg-white;
+    @apply rounded-sm border border-slate-300 px-3 py-2 text-sm text-slate-700 transition hover:border-slate-400;
+    background: #F0EFEC;
     font-family: "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
   }
 
   .btn-ghost-brand {
-    @apply rounded-sm border bg-white px-3 py-2 text-sm font-semibold transition;
+    @apply rounded-sm border px-3 py-2 text-sm font-semibold transition;
+    background: #F0EFEC;
     border-color: var(--brand);
     color: var(--brand);
     font-family: "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -96,8 +100,29 @@
     background: var(--brand-soft);
   }
 
+  .cxm-ok {
+    @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium text-white shadow-sm;
+    border: 1px solid #0000e1;
+    background: #0000e1;
+    transition: opacity 0.2s ease;
+  }
+
+  .cxm-ok:hover {
+    opacity: 0.9;
+  }
+
+  .cxm-ok:disabled {
+    cursor: not-allowed;
+    opacity: 1;
+    border-color: #cbd5e1;
+    background: #e2e8f0;
+    color: #64748b;
+    box-shadow: none;
+  }
+
   .input-base {
-    @apply w-full rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:ring-1;
+    @apply w-full rounded-sm border border-slate-300 px-3 py-2 text-sm outline-none transition focus:ring-1;
+    background: #F0EFEC;
     --tw-ring-color: var(--brand);
     font-family: "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
   }
@@ -150,9 +175,64 @@
     border-left-color: var(--brand);
   }
 
+  .nav-folder-trigger {
+    @apply flex items-center justify-between;
+    color: #1e293b;
+  }
+
+  .nav-chevron {
+    font-size: 14px;
+    color: #94a3b8;
+    transition: transform 0.2s ease;
+  }
+
+  .nav-chevron.open {
+    transform: rotate(180deg);
+  }
+
+  .nav-submenu {
+    display: grid;
+    gap: 2px;
+    margin: 2px 0 4px;
+  }
+
+  .nav-subitem {
+    border: 0;
+    background: transparent;
+    text-align: left;
+    color: #64748b;
+    font-size: 14px;
+    line-height: 20px;
+    padding: 8px 12px 8px 28px;
+    border-left: 3px solid transparent;
+    transition: all 0.2s ease;
+    font-family: "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+    cursor: pointer;
+  }
+
+  .nav-subitem:hover {
+    color: #334155;
+    background: #f8fafc;
+  }
+
+  .nav-subitem.active {
+    background: rgba(0, 0, 225, 0.06);
+    color: #0000e1;
+    font-weight: 500;
+    border-left-color: #0000e1;
+  }
+
   .field-label {
     @apply text-sm text-slate-600;
     font-family: "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  .required-mark {
+    color: #ef4444;
+    font-size: 11px;
+    vertical-align: super;
+    margin-left: 2px;
+    line-height: 1;
   }
 
   .table-shell {
@@ -161,7 +241,8 @@
   }
 
   .table-head-row {
-    @apply bg-white text-left text-slate-500;
+    @apply text-left text-slate-500;
+    background: #F0EFEC;
   }
 
   .table-head-cell {
@@ -178,16 +259,21 @@
     left: 50%;
     bottom: 40px;
     z-index: 1000;
-    display: flex;
+    display: inline-flex;
+    width: fit-content;
     align-items: center;
-    gap: 20px;
-    min-width: 360px;
+    gap: 16px;
     max-width: min(90vw, 760px);
-    padding: 12px 24px;
+    padding: 10px 24px;
     border-radius: 9999px;
-    background: #1e293b;
-    color: #ffffff;
-    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    background: #F0EFEC;
+    color: #64748b;
+    border: none;
+    box-shadow:
+      0 0 0 1px rgba(0, 0, 0, 0.02),
+      0 4px 6px -1px rgba(0, 0, 0, 0.04),
+      0 10px 15px -3px rgba(0, 0, 0, 0.08),
+      0 20px 25px -5px rgba(0, 0, 225, 0.04);
     transform: translateX(-50%) translateY(20px);
     opacity: 0;
     pointer-events: none;
@@ -203,9 +289,17 @@
 
   .context-action-count-number {
     display: inline-block;
-    font-weight: 800;
+    font-weight: 600;
     color: #0000e1;
+    margin: 0 6px;
     animation: context-action-count-pop 220ms ease-out;
+  }
+
+  .selected-count {
+    color: #64748b;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
   }
 
   .context-action-right {
@@ -219,15 +313,31 @@
     background: transparent;
     color: #ef4444;
     font-size: 14px;
-    font-weight: 700;
+    font-weight: 500;
     cursor: pointer;
-    border-radius: 4px;
-    padding: 4px 8px;
-    transition: all 0.2s;
+    border-radius: 0;
+    padding: 0;
+    transition: opacity 0.2s ease;
   }
 
   .batch-delete-btn:hover {
-    background-color: rgba(239, 68, 68, 0.1);
+    opacity: 0.6;
+  }
+
+  .batch-update-btn {
+    border: 0;
+    background: transparent;
+    color: #0000e1;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 0;
+    padding: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  .batch-update-btn:hover {
+    opacity: 0.6;
   }
 
   .batch-delete-btn:disabled {
@@ -237,14 +347,14 @@
 
   .action-divider {
     width: 1px;
-    height: 20px;
-    background: #475569;
+    height: 16px;
+    background: #e2e8f0;
   }
 
   .context-action-close {
     border: 0;
     background: transparent;
-    color: #cbd5e1;
+    color: #94a3b8;
     cursor: pointer;
     font-size: 16px;
     line-height: 1;
@@ -252,7 +362,7 @@
   }
 
   .context-action-close:hover {
-    color: #ffffff;
+    color: #1e293b;
   }
 
   .action-cell-group {
@@ -288,6 +398,45 @@
     cursor: not-allowed;
   }
 
+  .connection-action {
+    border: 0;
+    background: transparent;
+    color: #0000e1;
+    font-size: 13px;
+    line-height: 1.2;
+    border-radius: 8px;
+    padding: 4px 8px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+  }
+
+  .connection-action:hover {
+    background: #f1f5f9;
+    color: #0f172a;
+  }
+
+  .connection-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+
+  .connection-status-dot.is-running {
+    background: #10b981;
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
+    animation: connection-status-pulse 1.6s infinite;
+  }
+
+  .connection-status-dot.is-paused {
+    background: #f59e0b;
+  }
+
+  .connection-status-dot.is-error {
+    background: #ef4444;
+  }
+
   .sync-icon {
     display: inline-block;
     font-size: 12px;
@@ -299,27 +448,15 @@
     animation: token-refresh-spin 900ms linear infinite;
   }
 
-  .token-popconfirm {
-    position: absolute;
-    right: 88px;
-    top: -80px;
-    width: 280px;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    background: #ffffff;
-    padding: 10px;
-    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
-    z-index: 40;
-  }
-
   .more-action-menu {
     position: absolute;
     right: 0;
-    top: 24px;
+    top: auto;
+    bottom: 28px;
     min-width: 108px;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
-    background: #ffffff;
+    background: #F0EFEC;
     box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
     overflow: hidden;
     z-index: 35;
@@ -328,7 +465,7 @@
   .more-action-item {
     width: 100%;
     border: 0;
-    background: #ffffff;
+    background: #F0EFEC;
     text-align: left;
     padding: 8px 10px;
     font-size: 13px;
@@ -342,6 +479,12 @@
 
   .appauth-table .table-head-cell,
   .appauth-table .table-cell {
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  .connection-table th,
+  .connection-table td {
     text-align: center;
     vertical-align: middle;
   }
@@ -369,5 +512,17 @@
   }
   100% {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes connection-status-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
   }
 }

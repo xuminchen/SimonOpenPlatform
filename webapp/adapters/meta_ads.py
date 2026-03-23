@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 from typing import Any, Dict
 
 from subprojects._shared.core.http_client import HttpClient, HttpRequestConfig
@@ -24,6 +25,26 @@ class MetaAdsAdapter:
         end_date = payload.get("end_date")
         level = str(payload.get("level", "ad"))
         dry_run = bool(payload.get("dry_run", True))
+
+        max_day = (datetime.datetime.now() - datetime.timedelta(days=1)).date()
+        if isinstance(start_date, str) and start_date.strip():
+            try:
+                parsed = datetime.datetime.strptime(start_date.strip()[:10], "%Y-%m-%d").date()
+                if parsed > max_day:
+                    start_date = max_day.strftime("%Y-%m-%d")
+                else:
+                    start_date = parsed.strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+        if isinstance(end_date, str) and end_date.strip():
+            try:
+                parsed = datetime.datetime.strptime(end_date.strip()[:10], "%Y-%m-%d").date()
+                if parsed > max_day:
+                    end_date = max_day.strftime("%Y-%m-%d")
+                else:
+                    end_date = parsed.strftime("%Y-%m-%d")
+            except ValueError:
+                pass
 
         if dry_run:
             return {

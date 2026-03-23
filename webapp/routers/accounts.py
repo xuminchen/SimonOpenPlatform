@@ -4,7 +4,18 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from webapp.deps import require_db
 from webapp.db import get_db
+from webapp.error_messages import (
+    ACCOUNT_NOT_FOUND,
+    APP_IDS_EMPTY,
+    APP_ID_REQUIRED,
+    CREDENTIAL_SOURCE_ITEM_NOT_FOUND,
+    TOKEN_REFRESH_NOT_SUPPORTED,
+    platform_not_registered,
+    token_bootstrap_failed,
+    token_refresh_failed,
+)
 from webapp.models import PlatformAccount
 from webapp.schemas import (
     AccountCreateRequest,
@@ -22,10 +33,16 @@ from webapp.schemas import (
     CredentialSourceScanResponse,
     CredentialSourceSyncResponse,
     CredentialSourceTokenRefreshRequest,
+    CredentialSourceTokenRefreshBatchRequest,
+    CredentialSourceTokenRefreshBatchResponse,
+    CredentialSourceTokenRefreshBatchItem,
     CredentialSourceTokenRefreshResponse,
     CredentialSourceUpsertRequest,
     CredentialSourceUpsertResponse,
+    AccountStreamsUpdateRequest,
+    AccountStreamsResponse,
 )
+from webapp.services.account_streams import list_account_stream_names, replace_account_streams
 from webapp.services.accounts import (
     create_account,
     decode_account_config,
@@ -47,15 +64,53 @@ from webapp.services.token_refresh import SUPPORTED_TOKEN_PLATFORMS, bootstrap_t
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
 
-def _require_db(db: Session | None) -> Session:
-    if db is None:
-        raise HTTPException(status_code=503, detail="Database is disabled. JSON mode is active.")
-    return db
+def _to_account_summary(account: PlatformAccount) -> AccountSummary:
+    return AccountSummary(
+        id=account.id,
+        name=account.name,
+        platform=normalize_platform(account.platform),
+        status=account.status,
+        app_id=account.app_id,
+        created_at=account.created_at,
+        updated_at=account.updated_at,
+    )
+
+
+def _to_account_detail(account: PlatformAccount) -> AccountDetail:
+    return AccountDetail(
+        id=account.id,
+        name=account.name,
+        platform=account.platform,
+        status=account.status,
+        app_id=account.app_id,
+        created_at=account.created_at,
+        updated_at=account.updated_at,
+        config=decode_account_config(account),
+        secret_key_masked=get_secret_key_masked(account),
+        ip_whitelist=decode_ip_whitelist(account),
+        credential_updated_at=account.credential_updated_at,
+    )
+
+
+def _to_account_credentials_view(account: PlatformAccount) -> AccountCredentialsView:
+    return AccountCredentialsView(
+        app_id=account.app_id or "",
+        secret_key_masked=get_secret_key_masked(account),
+        ip_whitelist=decode_ip_whitelist(account),
+        credential_updated_at=account.credential_updated_at,
+    )
+
+
+def _get_account_or_404(db: Session, account_id: int) -> PlatformAccount:
+    account = db.get(PlatformAccount, account_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail=ACCOUNT_NOT_FOUND)
+    return ensure_account_credentials(db, account)
 
 
 @router.post("", response_model=AccountCreateResponse)
 def create_account_api(request: AccountCreateRequest, db: Session | None = Depends(get_db)) -> AccountCreateResponse:
-    db = _require_db(db)
+    db = require_db(db, detail="Database is disabled. JSON mode is active.")
     account, issued_secret_key = create_account(
         db,
         name=request.name,
@@ -90,17 +145,7 @@ def list_accounts_api(
     result = []
     for item in accounts:
         account = ensure_account_credentials(db, item)
-        result.append(
-            AccountSummary(
-                id=account.id,
-                name=account.name,
-                platform=normalize_platform(account.platform),
-                status=account.status,
-                app_id=account.app_id,
-                created_at=account.created_at,
-                updated_at=account.updated_at,
-            )
-        )
+        result.append(_to_account_summary(account))
     return result
 
 
@@ -255,20 +300,20 @@ def upsert_credential_source_api(request: CredentialSourceUpsertRequest) -> Cred
     normalized_platform = normalize_platform(request.platform)
     registered_platforms = {str(item.get("platform", "")).strip() for item in list_platform_configs()}
     if normalized_platform not in registered_platforms:
-        raise HTTPException(status_code=400, detail="platform is not registered: {0}".format(normalized_platform))
+        raise HTTPException(status_code=400, detail=platform_not_registered(normalized_platform))
     normalized_name = request.name.strip()
     normalized_config = dict(request.config) if isinstance(request.config, dict) else {}
     app_id = str(normalized_config.get("app_id", "")).strip() or None
     previous_app_id = str(request.previous_app_id or "").strip() or None
     if not app_id:
-        raise HTTPException(status_code=400, detail="app_id is required")
+        raise HTTPException(status_code=400, detail=APP_ID_REQUIRED)
     normalized_config["app_id"] = app_id
 
     if normalized_platform in SUPPORTED_TOKEN_PLATFORMS:
         try:
             normalized_config, _ = bootstrap_tokens_for_config(normalized_platform, normalized_config)
         except Exception as exc:
-            raise HTTPException(status_code=502, detail="token bootstrap failed: {0}".format(exc)) from exc
+            raise HTTPException(status_code=502, detail=token_bootstrap_failed(str(exc))) from exc
 
     try:
         sync_account_to_credentials_file(
@@ -305,7 +350,7 @@ def get_credential_source_item_api(
 ) -> CredentialSourceItemDetailResponse:
     target = find_credential_entry_by_app_id(app_id=app_id, refresh=refresh)
     if target is None:
-        raise HTTPException(status_code=404, detail="Credential source item not found")
+        raise HTTPException(status_code=404, detail=CREDENTIAL_SOURCE_ITEM_NOT_FOUND)
     return CredentialSourceItemDetailResponse(
         source_path=target.source_path,
         platform=normalize_platform(target.platform),
@@ -323,19 +368,23 @@ def delete_credential_source_items_api(request: CredentialSourceBatchDeleteReque
 
 @router.post("/credentials/source/token/refresh", response_model=CredentialSourceTokenRefreshResponse)
 def refresh_credential_source_token_api(request: CredentialSourceTokenRefreshRequest) -> CredentialSourceTokenRefreshResponse:
-    app_id = str(request.app_id).strip()
+    return _refresh_credential_source_token_by_app_id(str(request.app_id).strip())
+
+
+def _refresh_credential_source_token_by_app_id(app_id: str) -> CredentialSourceTokenRefreshResponse:
+    app_id = str(app_id).strip()
     if not app_id:
-        raise HTTPException(status_code=400, detail="app_id is required")
+        raise HTTPException(status_code=400, detail=APP_ID_REQUIRED)
 
     current = find_credential_entry_by_app_id(app_id=app_id, refresh=True)
     if current is None:
-        raise HTTPException(status_code=404, detail="Credential source item not found")
+        raise HTTPException(status_code=404, detail=CREDENTIAL_SOURCE_ITEM_NOT_FOUND)
 
     normalized_platform = normalize_platform(current.platform)
     if normalized_platform not in SUPPORTED_TOKEN_PLATFORMS:
         raise HTTPException(
             status_code=400,
-            detail="更新失败：当前平台不支持 Token 强制更新",
+            detail=TOKEN_REFRESH_NOT_SUPPORTED,
         )
 
     current_config = dict(current.config) if isinstance(current.config, dict) else {}
@@ -343,10 +392,10 @@ def refresh_credential_source_token_api(request: CredentialSourceTokenRefreshReq
     try:
         refreshed_config, status = bootstrap_tokens_for_config(normalized_platform, current_config)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail="更新失败：{0}".format(exc)) from exc
+        raise HTTPException(status_code=502, detail=token_refresh_failed(str(exc))) from exc
 
     if status != "refreshed":
-        raise HTTPException(status_code=400, detail="更新失败：{0}".format(status))
+        raise HTTPException(status_code=400, detail=token_refresh_failed(str(status)))
 
     sync_account_to_credentials_file(
         platform=normalized_platform,
@@ -388,6 +437,68 @@ def refresh_credential_source_token_api(request: CredentialSourceTokenRefreshReq
     )
 
 
+@router.post("/credentials/source/token/refresh/batch", response_model=CredentialSourceTokenRefreshBatchResponse)
+def refresh_credential_source_token_batch_api(
+    request: CredentialSourceTokenRefreshBatchRequest,
+) -> CredentialSourceTokenRefreshBatchResponse:
+    app_ids: list[str] = []
+    seen: set[str] = set()
+    for item in request.app_ids:
+        app_id = str(item).strip()
+        if not app_id or app_id in seen:
+            continue
+        seen.add(app_id)
+        app_ids.append(app_id)
+
+    if not app_ids:
+        raise HTTPException(status_code=400, detail=APP_IDS_EMPTY)
+
+    items: list[CredentialSourceTokenRefreshBatchItem] = []
+    refreshed = 0
+    failed = 0
+
+    for app_id in app_ids:
+        try:
+            result = _refresh_credential_source_token_by_app_id(app_id)
+            items.append(
+                CredentialSourceTokenRefreshBatchItem(
+                    app_id=app_id,
+                    ok=True,
+                    message="ok",
+                    result=result,
+                )
+            )
+            refreshed += 1
+        except HTTPException as exc:
+            message = str(exc.detail) if exc.detail is not None else "refresh failed"
+            items.append(
+                CredentialSourceTokenRefreshBatchItem(
+                    app_id=app_id,
+                    ok=False,
+                    message=message,
+                    result=None,
+                )
+            )
+            failed += 1
+        except Exception as exc:
+            items.append(
+                CredentialSourceTokenRefreshBatchItem(
+                    app_id=app_id,
+                    ok=False,
+                    message=str(exc),
+                    result=None,
+                )
+            )
+            failed += 1
+
+    return CredentialSourceTokenRefreshBatchResponse(
+        total=len(app_ids),
+        refreshed=refreshed,
+        failed=failed,
+        items=items,
+    )
+
+
 @router.post("/credentials/source/sync", response_model=CredentialSourceSyncResponse)
 def sync_credential_source_api(
     refresh: bool = Query(default=True),
@@ -404,7 +515,7 @@ def sync_credential_source_api(
             AccountSummary(
                 id=item.id,
                 name=item.name,
-                platform=item.platform,
+                platform=normalize_platform(item.platform),
                 status=item.status,
                 app_id=item.app_id,
                 created_at=item.created_at,
@@ -415,27 +526,31 @@ def sync_credential_source_api(
     )
 
 
+@router.get("/{account_id}/streams", response_model=AccountStreamsResponse)
+def get_account_streams_api(account_id: int, db: Session | None = Depends(get_db)) -> AccountStreamsResponse:
+    db = require_db(db, detail="Database is disabled. JSON mode is active.")
+    _ = _get_account_or_404(db, account_id)
+    streams = list_account_stream_names(db, account_id=account_id)
+    return AccountStreamsResponse(account_id=account_id, streams=streams)
+
+
+@router.post("/{account_id}/streams", response_model=AccountStreamsResponse)
+def update_account_streams_api(
+    account_id: int,
+    request: AccountStreamsUpdateRequest,
+    db: Session | None = Depends(get_db),
+) -> AccountStreamsResponse:
+    db = require_db(db, detail="Database is disabled. JSON mode is active.")
+    account = _get_account_or_404(db, account_id)
+    streams = replace_account_streams(db, account=account, streams=request.streams)
+    return AccountStreamsResponse(account_id=account_id, streams=streams)
+
+
 @router.get("/{account_id}", response_model=AccountDetail)
 def get_account_api(account_id: int, db: Session | None = Depends(get_db)) -> AccountDetail:
-    db = _require_db(db)
-    account = db.get(PlatformAccount, account_id)
-    if account is None:
-        raise HTTPException(status_code=404, detail="Account not found")
-    account = ensure_account_credentials(db, account)
-
-    return AccountDetail(
-        id=account.id,
-        name=account.name,
-        platform=account.platform,
-        status=account.status,
-        app_id=account.app_id,
-        created_at=account.created_at,
-        updated_at=account.updated_at,
-        config=decode_account_config(account),
-        secret_key_masked=get_secret_key_masked(account),
-        ip_whitelist=decode_ip_whitelist(account),
-        credential_updated_at=account.credential_updated_at,
-    )
+    db = require_db(db, detail="Database is disabled. JSON mode is active.")
+    account = _get_account_or_404(db, account_id)
+    return _to_account_detail(account)
 
 
 @router.patch("/{account_id}", response_model=AccountDetail)
@@ -444,11 +559,8 @@ def update_account_api(
     request: AccountUpdateRequest,
     db: Session | None = Depends(get_db),
 ) -> AccountDetail:
-    db = _require_db(db)
-    account = db.get(PlatformAccount, account_id)
-    if account is None:
-        raise HTTPException(status_code=404, detail="Account not found")
-    account = ensure_account_credentials(db, account)
+    db = require_db(db, detail="Database is disabled. JSON mode is active.")
+    account = _get_account_or_404(db, account_id)
 
     account = update_account(
         db,
@@ -457,63 +569,29 @@ def update_account_api(
         status=request.status,
         config=request.config,
     )
-    return AccountDetail(
-        id=account.id,
-        name=account.name,
-        platform=account.platform,
-        status=account.status,
-        app_id=account.app_id,
-        created_at=account.created_at,
-        updated_at=account.updated_at,
-        config=decode_account_config(account),
-        secret_key_masked=get_secret_key_masked(account),
-        ip_whitelist=decode_ip_whitelist(account),
-        credential_updated_at=account.credential_updated_at,
-    )
+    return _to_account_detail(account)
 
 
 @router.post("/{account_id}/disable", response_model=AccountSummary)
 def disable_account_api(account_id: int, db: Session | None = Depends(get_db)) -> AccountSummary:
-    db = _require_db(db)
-    account = db.get(PlatformAccount, account_id)
-    if account is None:
-        raise HTTPException(status_code=404, detail="Account not found")
-    account = ensure_account_credentials(db, account)
+    db = require_db(db, detail="Database is disabled. JSON mode is active.")
+    account = _get_account_or_404(db, account_id)
 
     account = update_account(db, account, status="disabled")
-    return AccountSummary(
-        id=account.id,
-        name=account.name,
-        platform=account.platform,
-        status=account.status,
-        app_id=account.app_id,
-        created_at=account.created_at,
-        updated_at=account.updated_at,
-    )
+    return _to_account_summary(account)
 
 
 @router.get("/{account_id}/credentials", response_model=AccountCredentialsView)
 def get_account_credentials_api(account_id: int, db: Session | None = Depends(get_db)) -> AccountCredentialsView:
-    db = _require_db(db)
-    account = db.get(PlatformAccount, account_id)
-    if account is None:
-        raise HTTPException(status_code=404, detail="Account not found")
-    account = ensure_account_credentials(db, account)
-    return AccountCredentialsView(
-        app_id=account.app_id or "",
-        secret_key_masked=get_secret_key_masked(account),
-        ip_whitelist=decode_ip_whitelist(account),
-        credential_updated_at=account.credential_updated_at,
-    )
+    db = require_db(db, detail="Database is disabled. JSON mode is active.")
+    account = _get_account_or_404(db, account_id)
+    return _to_account_credentials_view(account)
 
 
 @router.post("/{account_id}/credentials/reset", response_model=AccountCredentialsResetResponse)
 def reset_account_credentials_api(account_id: int, db: Session | None = Depends(get_db)) -> AccountCredentialsResetResponse:
-    db = _require_db(db)
-    account = db.get(PlatformAccount, account_id)
-    if account is None:
-        raise HTTPException(status_code=404, detail="Account not found")
-    account = ensure_account_credentials(db, account)
+    db = require_db(db, detail="Database is disabled. JSON mode is active.")
+    account = _get_account_or_404(db, account_id)
     account, issued_secret_key = reset_account_secret_key(db, account)
     return AccountCredentialsResetResponse(
         app_id=account.app_id or "",
@@ -528,15 +606,7 @@ def update_account_ip_whitelist_api(
     request: AccountIPWhitelistUpdateRequest,
     db: Session | None = Depends(get_db),
 ) -> AccountCredentialsView:
-    db = _require_db(db)
-    account = db.get(PlatformAccount, account_id)
-    if account is None:
-        raise HTTPException(status_code=404, detail="Account not found")
-    account = ensure_account_credentials(db, account)
+    db = require_db(db, detail="Database is disabled. JSON mode is active.")
+    account = _get_account_or_404(db, account_id)
     account = update_ip_whitelist(db, account, request.ip_whitelist)
-    return AccountCredentialsView(
-        app_id=account.app_id or "",
-        secret_key_masked=get_secret_key_masked(account),
-        ip_whitelist=decode_ip_whitelist(account),
-        credential_updated_at=account.credential_updated_at,
-    )
+    return _to_account_credentials_view(account)

@@ -4,10 +4,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from webapp.db import get_db
+from webapp.error_messages import PLATFORM_REQUIRED
 from webapp.models import PlatformAccount
-from webapp.schemas import PlatformConfigCreateRequest, PlatformConfigDeleteResponse, PlatformConfigItem
+from webapp.schemas import (
+    PlatformConfigCreateRequest,
+    PlatformConfigDeleteResponse,
+    PlatformConfigItem,
+    PlatformConfigUpdateRequest,
+)
 from webapp.services.platform_alias import normalize_platform
-from webapp.services.platform_configs import create_platform_config, delete_platform_config, list_platform_configs
+from webapp.services.platform_configs import create_platform_config, delete_platform_config, list_platform_configs, update_platform_config
 
 
 router = APIRouter(prefix="/platform-configs", tags=["platform-configs"])
@@ -33,11 +39,26 @@ def create_platform_config_api(request: PlatformConfigCreateRequest) -> Platform
     return PlatformConfigItem(**item)
 
 
+@router.put("/{platform}", response_model=PlatformConfigItem)
+def update_platform_config_api(platform: str, request: PlatformConfigUpdateRequest) -> PlatformConfigItem:
+    try:
+        item = update_platform_config(
+            platform=platform,
+            label=request.label,
+            helper=request.helper,
+            docs_url=request.docs_url,
+            status=request.status,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return PlatformConfigItem(**item)
+
+
 @router.delete("/{platform}", response_model=PlatformConfigDeleteResponse)
 def delete_platform_config_api(platform: str, db: Session | None = Depends(get_db)) -> PlatformConfigDeleteResponse:
     normalized_platform = normalize_platform(platform)
     if not normalized_platform:
-        raise HTTPException(status_code=400, detail="platform is required")
+        raise HTTPException(status_code=400, detail=PLATFORM_REQUIRED)
 
     used_platforms: set[str] = set()
     if db is not None:

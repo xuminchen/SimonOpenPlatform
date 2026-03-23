@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import threading
 
@@ -9,6 +10,7 @@ from webapp.services.token_refresh import refresh_managed_tokens_once
 
 _THREAD: threading.Thread | None = None
 _STOP_EVENT = threading.Event()
+_LOGGER = logging.getLogger(__name__)
 
 
 def _interval_seconds() -> int:
@@ -27,7 +29,7 @@ def _enabled() -> bool:
 
 def _run_loop() -> None:
     interval = _interval_seconds()
-    print("token-refresh scheduler started interval_seconds={0}".format(interval))
+    _LOGGER.info("token-refresh scheduler started interval_seconds=%s", interval)
     while not _STOP_EVENT.is_set():
         if SessionLocal is None:
             _STOP_EVENT.wait(interval)
@@ -35,19 +37,19 @@ def _run_loop() -> None:
         db = SessionLocal()
         try:
             summary = refresh_managed_tokens_once(db)
-            print("token-refresh run summary={0}".format(summary))
+            _LOGGER.info("token-refresh run summary=%s", summary)
         except Exception as exc:
-            print("token-refresh scheduler error={0}".format(exc))
+            _LOGGER.exception("token-refresh scheduler error=%s", exc)
         finally:
             db.close()
         _STOP_EVENT.wait(interval)
-    print("token-refresh scheduler stopped")
+    _LOGGER.info("token-refresh scheduler stopped")
 
 
 def start_token_scheduler() -> None:
     global _THREAD
     if not _enabled():
-        print("token-refresh scheduler disabled by WONDERLAB_TOKEN_REFRESH_ENABLED")
+        _LOGGER.info("token-refresh scheduler disabled by WONDERLAB_TOKEN_REFRESH_ENABLED")
         return
     if _THREAD is not None and _THREAD.is_alive():
         return
@@ -58,4 +60,9 @@ def start_token_scheduler() -> None:
 
 
 def stop_token_scheduler() -> None:
+    global _THREAD
     _STOP_EVENT.set()
+    thread = _THREAD
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=3)
+    _THREAD = None

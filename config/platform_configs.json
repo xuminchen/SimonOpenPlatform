@@ -1,0 +1,34 @@
+{
+  "platforms": {
+    "jlgg": {
+      "label": "巨量广告",
+      "helper": "",
+      "docs_url": "https://open.oceanengine.com/labels/7/docs/1696710497745920?origin=left_nav",
+      "status": "active"
+    },
+    "red_juguang": {
+      "label": "小红书聚光",
+      "helper": "",
+      "docs_url": "https://ad-market.xiaohongshu.com/docs-center?bizType=943&articleId=4437",
+      "status": "active"
+    },
+    "jlqc": {
+      "label": "巨量千川",
+      "helper": "",
+      "docs_url": "https://open.oceanengine.com/labels/12?origin=left_nav",
+      "status": "active"
+    },
+    "red_chengfeng": {
+      "label": "小红书乘风",
+      "helper": "",
+      "docs_url": "https://ad-market.xiaohongshu.com/docs-center?bizType=1084&articleId=4437",
+      "status": "active"
+    },
+    "red_pgy": {
+      "label": "小红书蒲公英(达人采买)",
+      "helper": "",
+      "docs_url": "https://ad-market.xiaohongshu.com/docs-center?bizType=944&articleId=2607",
+      "status": "active"
+    }
+  }
+}

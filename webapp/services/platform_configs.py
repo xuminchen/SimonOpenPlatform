@@ -6,9 +6,17 @@ from pathlib import Path
 import threading
 from typing import Any
 
+from webapp.error_messages import PLATFORM_REQUIRED
 from webapp.services.platform_alias import normalize_platform
 
 _FILE_LOCK = threading.Lock()
+
+def _require_platform(platform: str) -> str:
+    normalized_platform = normalize_platform(platform)
+    if not normalized_platform:
+        raise ValueError(PLATFORM_REQUIRED)
+    return normalized_platform
+
 
 _SYSTEM_PLATFORMS: dict[str, dict[str, Any]] = {
     "oceanengine": {
@@ -103,17 +111,13 @@ def _custom_platforms() -> dict[str, dict[str, Any]]:
 
 
 def list_platform_configs() -> list[dict[str, Any]]:
-    merged = dict(_SYSTEM_PLATFORMS)
-    merged.update(_custom_platforms())
-    return [merged[k] for k in sorted(merged.keys())]
+    # 系统内置平台已关闭，仅保留用户自定义注册的平台。
+    custom = _custom_platforms()
+    return [custom[k] for k in sorted(custom.keys())]
 
 
 def create_platform_config(*, platform: str, label: str, helper: str = "", docs_url: str = "", status: str = "active") -> dict[str, Any]:
-    normalized_platform = normalize_platform(platform)
-    if not normalized_platform:
-        raise ValueError("platform is required")
-    if normalized_platform in _SYSTEM_PLATFORMS:
-        raise ValueError("system platform cannot be overwritten: {0}".format(normalized_platform))
+    normalized_platform = _require_platform(platform)
 
     path = _config_path()
     with _FILE_LOCK:
@@ -122,6 +126,35 @@ def create_platform_config(*, platform: str, label: str, helper: str = "", docs_
         if not isinstance(bucket, dict):
             bucket = {}
             root["platforms"] = bucket
+        if normalized_platform in bucket:
+            raise ValueError("platform already exists: {0}".format(normalized_platform))
+        bucket[normalized_platform] = {
+            "label": str(label or normalized_platform).strip() or normalized_platform,
+            "helper": str(helper or "").strip(),
+            "docs_url": str(docs_url or "").strip(),
+            "status": str(status or "active").strip() or "active",
+        }
+        _write_json(path, root)
+
+    return {
+        "platform": normalized_platform,
+        "label": str(label or normalized_platform).strip() or normalized_platform,
+        "helper": str(helper or "").strip(),
+        "docs_url": str(docs_url or "").strip(),
+        "status": str(status or "active").strip() or "active",
+        "mutable": True,
+    }
+
+
+def update_platform_config(*, platform: str, label: str, helper: str = "", docs_url: str = "", status: str = "active") -> dict[str, Any]:
+    normalized_platform = _require_platform(platform)
+
+    path = _config_path()
+    with _FILE_LOCK:
+        root = _read_json(path)
+        bucket = root.get("platforms")
+        if not isinstance(bucket, dict) or normalized_platform not in bucket:
+            raise ValueError("platform not found: {0}".format(normalized_platform))
         bucket[normalized_platform] = {
             "label": str(label or normalized_platform).strip() or normalized_platform,
             "helper": str(helper or "").strip(),
@@ -141,11 +174,7 @@ def create_platform_config(*, platform: str, label: str, helper: str = "", docs_
 
 
 def delete_platform_config(*, platform: str, used_platforms: set[str] | None = None) -> bool:
-    normalized_platform = normalize_platform(platform)
-    if not normalized_platform:
-        raise ValueError("platform is required")
-    if normalized_platform in _SYSTEM_PLATFORMS:
-        raise ValueError("system platform cannot be deleted: {0}".format(normalized_platform))
+    normalized_platform = _require_platform(platform)
     if used_platforms and normalized_platform in used_platforms:
         raise ValueError("platform is in use and cannot be deleted: {0}".format(normalized_platform))
 
