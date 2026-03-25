@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { createPortal } from "react-dom"
 import { useLocation, useNavigate } from "react-router-dom"
+import { Button, Checkbox, Dropdown, Input, Modal, Select, Segmented, Space, Switch, Table, Tag } from "antd"
 import { apiFetch } from "./api/client"
 import ConfirmModal from "./components/ConfirmModal"
 import ConnectionWizardModal from "./components/modals/ConnectionWizardModal"
@@ -256,6 +257,24 @@ function statusClass(status) {
   return "status-pill bg-slate-400"
 }
 
+function statusTagColor(status) {
+  const key = String(status || "").trim().toLowerCase()
+  if (key === "ready" || key === "active" || key === "success") return "success"
+  if (key === "running" || key === "pending") return "processing"
+  if (key === "partial") return "warning"
+  if (key === "failed" || key === "error" || key === "exception" || key === "refresh_failed" || key === "abnormal") {
+    return "error"
+  }
+  return "default"
+}
+
+function connectionToneTagColor(tone) {
+  const key = String(tone || "").trim().toLowerCase()
+  if (key === "active") return "success"
+  if (key === "warning") return "warning"
+  return "default"
+}
+
 function platformMappingLabel(platform, platformLabelMap = {}) {
   const key = String(platform || "").trim().toLowerCase()
   return platformLabelMap[key] || platform || "-"
@@ -365,8 +384,6 @@ function App() {
   const [connectionsLoading, setConnectionsLoading] = useState(false)
   const [connectionSearch, setConnectionSearch] = useState("")
   const [selectedConnectionIds, setSelectedConnectionIds] = useState([])
-  const [executionRowsByProject, setExecutionRowsByProject] = useState({})
-  const [executionLoadingByProject, setExecutionLoadingByProject] = useState({})
   const [executionSubmittingByProject, setExecutionSubmittingByProject] = useState({})
   const [connectionDeletingByProject, setConnectionDeletingByProject] = useState({})
   const [executionDetailDialog, setExecutionDetailDialog] = useState(null)
@@ -377,7 +394,6 @@ function App() {
   const [streamPreviewDialog, setStreamPreviewDialog] = useState(null)
   const [streamPreviewViewMode, setStreamPreviewViewMode] = useState("table")
   const [connectionDrawerMode, setConnectionDrawerMode] = useState("setup")
-  const [connectionHeaderMenuOpen, setConnectionHeaderMenuOpen] = useState(false)
   const [wizardConnectionSaving, setWizardConnectionSaving] = useState(false)
   const [wizardTestLoading, setWizardTestLoading] = useState(false)
   const [wizardTestResult, setWizardTestResult] = useState(null)
@@ -469,8 +485,6 @@ function App() {
   const [sourcePage, setSourcePage] = useState(1)
   const [sourcePageSize] = useState(20)
   const [sourceTotal, setSourceTotal] = useState(0)
-  const [sourceTotalPages, setSourceTotalPages] = useState(1)
-  const [sourceJumpPage, setSourceJumpPage] = useState("1")
   const [selectedSourceAppIds, setSelectedSourceAppIds] = useState([])
   const [batchDeleting, setBatchDeleting] = useState(false)
   const [batchRefreshing, setBatchRefreshing] = useState(false)
@@ -481,7 +495,6 @@ function App() {
   const [connectionBatchBarMounted, setConnectionBatchBarMounted] = useState(false)
   const [connectionBatchBarVisible, setConnectionBatchBarVisible] = useState(false)
   const [tokenRefreshingByAppId, setTokenRefreshingByAppId] = useState({})
-  const [moreMenuAppId, setMoreMenuAppId] = useState("")
   const [streamDrawerOpen, setStreamDrawerOpen] = useState(false)
   const [currentConfigAccount, setCurrentConfigAccount] = useState(null)
   const [activeStreams, setActiveStreams] = useState({})
@@ -492,7 +505,6 @@ function App() {
   const [editLoading, setEditLoading] = useState(false)
   const [editSaving, setEditSaving] = useState(false)
   const [appDrawerOpen, setAppDrawerOpen] = useState(false)
-  const [appDrawerVisible, setAppDrawerVisible] = useState(false)
   const [actionModal, setActionModal] = useState(null)
   const [actionModalLoading, setActionModalLoading] = useState(false)
   const [whitelistDialog, setWhitelistDialog] = useState(null)
@@ -690,7 +702,6 @@ function App() {
   }
 
   function closeConnectionWizard() {
-    setConnectionHeaderMenuOpen(false)
     navigate("/application/connection")
   }
 
@@ -1030,17 +1041,6 @@ function App() {
       return pool.includes(kw)
     })
   }, [connectionSearch, connections])
-  const selectableConnectionIds = useMemo(() => {
-    return filteredConnections.map((conn) => Number(conn.id)).filter((id) => Number.isFinite(id))
-  }, [filteredConnections])
-  const allConnectionsSelected = useMemo(() => {
-    return selectableConnectionIds.length > 0 && selectableConnectionIds.every((id) => selectedConnectionIds.includes(id))
-  }, [selectableConnectionIds, selectedConnectionIds])
-  const someConnectionsSelected = useMemo(() => {
-    if (selectableConnectionIds.length === 0) return false
-    const checkedCount = selectableConnectionIds.filter((id) => selectedConnectionIds.includes(id)).length
-    return checkedCount > 0 && checkedCount < selectableConnectionIds.length
-  }, [selectableConnectionIds, selectedConnectionIds])
   const connectionSummary = useMemo(() => {
     let active = 0
     let paused = 0
@@ -1057,6 +1057,285 @@ function App() {
     })
     return { active, paused, warning, total: connections.length }
   }, [connections])
+
+  const connectionHeaderMenu = {
+    items: [
+      { key: "refresh", label: "刷新列表" },
+      { key: "toggle_auto_refresh", label: `自动刷新: ${autoRefresh ? "开" : "关"}` },
+      { key: "attributes", label: "Attributes" },
+    ],
+    onClick: ({ key }) => {
+      if (key === "refresh") {
+        loadConnections().catch((e) => showToast(e.message))
+        return
+      }
+      if (key === "toggle_auto_refresh") {
+        setAutoRefresh((v) => !v)
+        return
+      }
+      showToast("属性面板建设中")
+    },
+  }
+
+  const connectionRowSelection = useMemo(
+    () => ({
+      selectedRowKeys: selectedConnectionIds,
+      onChange: (nextKeys) => {
+        const next = nextKeys.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+        setSelectedConnectionIds(next)
+      },
+    }),
+    [selectedConnectionIds]
+  )
+
+  const connectionListColumns = [
+      {
+        title: "Connection name",
+        key: "name",
+        render: (_, conn) => (
+          <Button type="link" onClick={() => openConnectionDetailPage(conn)}>
+            {conn.name || "-"}
+          </Button>
+        ),
+      },
+      {
+        title: "Source type",
+        key: "platform_code",
+        render: (_, conn) => (
+          <Space direction="vertical" size={2}>
+            <Space size={6}>
+              <Tag color="blue">{connectionSourceIcon(conn.platform_code)}</Tag>
+              <span>{platformMappingLabel(conn.platform_code, platformLabelMap)}</span>
+            </Space>
+            {Array.isArray(conn.app_ids) && conn.app_ids.length > 1 ? (
+              <span className="text-xs text-slate-500">包含 {conn.app_ids.length} 个授权账号</span>
+            ) : null}
+          </Space>
+        ),
+      },
+      {
+        title: "Destination",
+        key: "destination",
+        render: (_, conn) => (
+          <Space size={6}>
+            <Tag color="geekblue">{connectionDestinationIcon(conn.destination)}</Tag>
+            <span>{conn.destination || "ClickHouse_DW"}</span>
+          </Space>
+        ),
+      },
+      {
+        title: "Status",
+        key: "status",
+        render: (_, conn) => {
+          const statusMeta = connectionStatusMeta(conn.status)
+          return <Tag color={connectionToneTagColor(statusMeta.tone)}>{statusMeta.text}</Tag>
+        },
+      },
+      {
+        title: "Last synced",
+        key: "last_sync_time",
+        render: (_, conn) => formatTimeText(conn.last_sync_time),
+      },
+      {
+        title: "Actions",
+        key: "actions",
+        render: (_, conn) => {
+          const projectId = Number(conn.id)
+          const executionSubmitting = !!executionSubmittingByProject[projectId]
+          const deleting = !!connectionDeletingByProject[projectId]
+          return (
+            <Space size={0}>
+              <Button type="link" onClick={() => openConnectionManageWorkspace(conn)}>
+                Edit
+              </Button>
+              <Button
+                type="link"
+                onClick={() => handleRunNowConnection(conn)}
+                disabled={executionSubmitting || deleting}
+              >
+                {executionSubmitting ? "Running..." : "Run Now"}
+              </Button>
+              <Button
+                type="link"
+                danger
+                onClick={() => handleDeleteSingleConnection(conn)}
+                disabled={deleting}
+              >
+                {deleting ? "Deleting..." : "Delete"}
+              </Button>
+            </Space>
+          )
+        },
+      },
+    ]
+
+  const connectionDetailColumns = [
+      {
+        title: "序号",
+        key: "index",
+        width: 80,
+        render: (_, __, index) => index + 1,
+      },
+      {
+        title: "Stream",
+        dataIndex: "stream_name",
+        key: "stream_name",
+      },
+      {
+        title: "Sync Mode",
+        key: "sync_mode",
+        render: (_, row) => syncModeLabel(row.sync_mode),
+      },
+      {
+        title: "Cursor Field",
+        dataIndex: "cursor_field",
+        key: "cursor_field",
+        render: (value) => value || "-",
+      },
+      {
+        title: "Last Synced",
+        key: "last_routine_finished_at",
+        render: (_, row) => formatTimeText(row.last_routine_finished_at),
+      },
+      {
+        title: "Actions",
+        key: "actions",
+        render: (_, row) => (
+          <Button
+            type="link"
+            onClick={() => handlePreviewStream(connectionDetailProject.id, row.stream_name)}
+          >
+            Preview
+          </Button>
+        ),
+      },
+    ]
+
+  const credentialRowSelection = useMemo(
+    () => ({
+      selectedRowKeys: selectedSourceAppIds,
+      onChange: (nextKeys) => {
+        setSelectedSourceAppIds(nextKeys.map((value) => String(value)))
+      },
+      getCheckboxProps: (record) => ({
+        disabled: !record.app_id || !!tokenRefreshingByAppId[String(record.app_id || "")],
+      }),
+    }),
+    [selectedSourceAppIds, tokenRefreshingByAppId]
+  )
+
+  const credentialColumns = [
+      {
+        title: "序号",
+        dataIndex: "row_no",
+        key: "row_no",
+        width: 80,
+      },
+      {
+        title: "名称",
+        dataIndex: "name",
+        key: "name",
+      },
+      {
+        title: "App_ID",
+        dataIndex: "app_id",
+        key: "app_id",
+        render: (value) => <span className="mono-ui">{value || "-"}</span>,
+      },
+      {
+        title: "平台",
+        key: "platform",
+        render: (_, item) => platformMappingLabel(item.platform, platformLabelMap),
+      },
+      {
+        title: "状态",
+        key: "status",
+        render: (_, item) => <Tag color={statusTagColor(item.status)}>{item.status || "-"}</Tag>,
+      },
+      {
+        title: "Token 状态",
+        key: "token_status",
+        render: (_, item) => {
+          const tokenStatus = item.token_status || (item.has_access_token ? "ready" : "missing")
+          return <Tag color={statusTagColor(tokenStatus)}>{tokenStatus}</Tag>
+        },
+      },
+      {
+        title: "更新时间",
+        key: "token_updated_at",
+        render: (_, item) => <span className="mono-ui">{formatTimeText(item.token_updated_at)}</span>,
+      },
+      {
+        title: "access_token",
+        key: "access_token",
+        render: (_, item) => <span className="mono-ui text-xs">{item.access_token || "-"}</span>,
+      },
+      {
+        title: "操作",
+        key: "actions",
+        width: 280,
+        render: (_, item) => {
+          const refreshing = isRowTokenRefreshing(item.app_id)
+          const actionDisabled = !item.app_id || refreshing
+          return (
+            <Space size={0} wrap>
+              <Button
+                type="link"
+                disabled={refreshing}
+                onClick={() => openEditCredentialDialog(item)}
+              >
+                编辑
+              </Button>
+              <Button
+                type="link"
+                loading={refreshing}
+                disabled={actionDisabled}
+                onClick={() => openTokenConfirm(item)}
+              >
+                {refreshing ? "更新中..." : "更新 Token"}
+              </Button>
+              <Button
+                type="link"
+                disabled={actionDisabled}
+                onClick={() => openStreamDrawerForAccount(item)}
+              >
+                配置接口
+              </Button>
+              <Dropdown
+                trigger={["click"]}
+                menu={{
+                  items: [
+                    { key: "view", label: "查看" },
+                    { key: "delete", label: "删除", danger: true },
+                  ],
+                  onClick: ({ key }) => {
+                    if (key === "view") {
+                      setDetailText(JSON.stringify(item, null, 2))
+                      return
+                    }
+                    handleDeleteSingleCredential(item)
+                  },
+                }}
+              >
+                <Button type="link" disabled={refreshing}>更多</Button>
+              </Dropdown>
+            </Space>
+          )
+        },
+      },
+    ]
+
+  const credentialPagination = {
+    current: sourcePage,
+    pageSize: sourcePageSize,
+    total: sourceTotal,
+    showSizeChanger: false,
+    showTotal: (total) => `共 ${total} 条，每页 ${sourcePageSize} 条`,
+    onChange: (page) => {
+      loadCredentialSource(page).catch((err) => showToast(err.message))
+    },
+  }
+
   const destinationCatalogActive = useMemo(() => {
     for (const group of destinationCatalogGroups) {
       const hit = group.items.find((item) => `${group.id}:${item.id}` === catalogActiveTableId)
@@ -1230,14 +1509,6 @@ function App() {
     const noMillis = normalized.split(".")[0]
     const noOffset = noMillis.split("+")[0]
     return noOffset
-  }
-
-  function formatConnectionFrequency(cron) {
-    const value = String(cron || "").trim()
-    if (value === "*/15 * * * *") return "每 15 分钟"
-    if (value === "0 * * * *") return "每小时"
-    if (value === "0 2 * * *") return "每天 02:00"
-    return value || "-"
   }
 
   function applySchedulePreset(preset) {
@@ -1460,26 +1731,6 @@ function App() {
     return "DW"
   }
 
-  function toggleSelectAllConnections(checked) {
-    if (!checked) {
-      setSelectedConnectionIds([])
-      return
-    }
-    setSelectedConnectionIds(selectableConnectionIds)
-  }
-
-  function toggleSelectConnection(id, checked) {
-    const connectionId = Number(id)
-    if (!Number.isFinite(connectionId)) return
-    setSelectedConnectionIds((prev) => {
-      if (checked) {
-        if (prev.includes(connectionId)) return prev
-        return [...prev, connectionId]
-      }
-      return prev.filter((item) => item !== connectionId)
-    })
-  }
-
   function clearConnectionSelection() {
     setSelectedConnectionIds([])
   }
@@ -1596,12 +1847,10 @@ function App() {
 
   function openAppDrawer() {
     setAppDrawerOpen(true)
-    window.requestAnimationFrame(() => setAppDrawerVisible(true))
   }
 
   function closeAppDrawer() {
-    setAppDrawerVisible(false)
-    window.setTimeout(() => setAppDrawerOpen(false), 220)
+    setAppDrawerOpen(false)
     setAccountForm(initialAccountForm)
   }
 
@@ -1709,15 +1958,8 @@ function App() {
   async function loadProjectExecutions(projectId, { limit = 50 } = {}) {
     const pid = Number(projectId)
     if (!Number.isFinite(pid) || pid <= 0) return []
-    setExecutionLoadingByProject((prev) => ({ ...prev, [pid]: true }))
-    try {
-      const rows = await apiFetch(`/api/v1/connections/projects/${pid}/executions?limit=${limit}`)
-      const normalized = Array.isArray(rows) ? rows : []
-      setExecutionRowsByProject((prev) => ({ ...prev, [pid]: normalized }))
-      return normalized
-    } finally {
-      setExecutionLoadingByProject((prev) => ({ ...prev, [pid]: false }))
-    }
+    const rows = await apiFetch(`/api/v1/connections/projects/${pid}/executions?limit=${limit}`)
+    return Array.isArray(rows) ? rows : []
   }
 
   async function handleRunNowConnection(conn) {
@@ -1756,21 +1998,6 @@ function App() {
     } finally {
       setExecutionSubmittingByProject((prev) => ({ ...prev, [projectId]: false }))
     }
-  }
-
-  function executionStatusClass(status) {
-    const key = String(status || "").trim().toUpperCase()
-    if (key === "SUCCESS") return "status-pill bg-emerald-600"
-    if (key === "FAILED") return "status-pill bg-rose-600"
-    if (key === "RUNNING") return "status-pill bg-sky-600"
-    return "status-pill bg-slate-500"
-  }
-
-  function getStreamNameByExecution(conn, execution) {
-    const sid = Number(execution?.stream_task_id)
-    const stream = (Array.isArray(conn?.streams) ? conn.streams : []).find((item) => Number(item?.id) === sid)
-    if (stream) return String(stream.stream_name || "-")
-    return sid ? `stream#${sid}` : "-"
   }
 
   const loadConnections = useCallback(async () => {
@@ -1937,9 +2164,7 @@ function App() {
     setSourceAccounts(nextEntries)
     setSourcePlatforms(data.platforms || [])
     setSourceTotal(data.total || 0)
-    setSourceTotalPages(data.total_pages || 1)
     setSourcePage(data.page || 1)
-    setSourceJumpPage(String(data.page || 1))
     setSelectedSourceAppIds((prev) => {
       const valid = new Set(
         nextEntries
@@ -2055,32 +2280,12 @@ function App() {
       setActionModal(null)
       setWhitelistDialog(null)
       setEditDialog(null)
-      setMoreMenuAppId("")
     }
 
     window.addEventListener("keydown", handleEsc)
     return () => {
       window.removeEventListener("keydown", handleEsc)
     }
-  }, [])
-
-  useEffect(() => {
-    function handleOutsideClick(e) {
-      const target = e.target
-      if (!(target instanceof Element)) return
-      const inMoreMenu = !!target.closest(".more-action-menu")
-      const inMoreBtn = !!target.closest(".dropdown-trigger")
-      const inConnectionMenu = !!target.closest(".connection-more-menu")
-      const inConnectionBtn = !!target.closest(".connection-more-btn")
-      if (!inMoreMenu && !inMoreBtn) {
-        setMoreMenuAppId("")
-      }
-      if (!inConnectionMenu && !inConnectionBtn) {
-        setConnectionHeaderMenuOpen(false)
-      }
-    }
-    window.addEventListener("mousedown", handleOutsideClick)
-    return () => window.removeEventListener("mousedown", handleOutsideClick)
   }, [])
 
   const filteredTasks = useMemo(() => {
@@ -2094,16 +2299,6 @@ function App() {
       return hitKeyword && hitStatus
     })
   }, [tasks, taskSearch, taskStatus])
-
-  const selectableSourceAppIds = useMemo(
-    () => sourceAccounts.map((item) => String(item.app_id || "").trim()).filter(Boolean),
-    [sourceAccounts]
-  )
-
-  const allSourceRowsSelected = useMemo(() => {
-    if (!selectableSourceAppIds.length) return false
-    return selectableSourceAppIds.every((appId) => selectedSourceAppIds.includes(appId))
-  }, [selectableSourceAppIds, selectedSourceAppIds])
 
   const stats = useMemo(() => {
     const success = tasks.filter((x) => x.status === "success").length
@@ -2445,31 +2640,11 @@ function App() {
     }
   }
 
-  function toggleSelectAllSourceRows(checked) {
-    if (!checked) {
-      setSelectedSourceAppIds([])
-      return
-    }
-    setSelectedSourceAppIds(selectableSourceAppIds)
-  }
-
-  function toggleSelectSourceRow(appId, checked) {
-    if (!appId) return
-    setSelectedSourceAppIds((prev) => {
-      if (checked) {
-        if (prev.includes(appId)) return prev
-        return [...prev, appId]
-      }
-      return prev.filter((x) => x !== appId)
-    })
-  }
-
   function clearSourceSelection() {
     setSelectedSourceAppIds([])
   }
 
   async function openEditCredentialDialog(item) {
-    setMoreMenuAppId("")
     const appId = String(item?.app_id || "").trim()
     if (!appId) {
       showToast("当前记录缺少 app_id，无法编辑")
@@ -2667,7 +2842,6 @@ function App() {
       showToast("当前记录缺少 app_id，无法更新 Token")
       return
     }
-    setMoreMenuAppId("")
     openActionModal({
       title: "强制更新 Token",
       content: "确定要强制更新此凭证的 Token 吗？旧的 Token 将立即失效，可能导致正在运行的同步任务中断。",
@@ -2745,7 +2919,6 @@ function App() {
             body: JSON.stringify({ app_ids: [appId] }),
           })
           showToast(`删除完成：删除 ${data.deleted} 条`)
-          setMoreMenuAppId("")
           setSelectedSourceAppIds((prev) => prev.filter((x) => x !== appId))
           await loadCredentialSource(sourcePage)
         } catch (err) {
@@ -2753,13 +2926,6 @@ function App() {
         }
       },
     })
-  }
-
-  function handleJumpPage() {
-    const parsed = Number.parseInt(sourceJumpPage, 10)
-    if (!Number.isFinite(parsed)) return
-    const target = Math.max(1, Math.min(sourceTotalPages, parsed))
-    loadCredentialSource(target).catch((err) => showToast(err.message))
   }
 
   async function handleTaskDetail(id) {
@@ -3181,23 +3347,57 @@ function App() {
         {activeModule === "application_connection" && (
           <section className="space-y-4">
             {isConnectionDetailView ? (
-              <article className="section-block space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h3 className="m-0 text-[28px] font-bold leading-none text-slate-900">Connection Detail</h3>
-                    <p className="mt-2 text-sm text-slate-500 mono-ui">Project ID: {connectionDetailId}</p>
+              <article className="space-y-4">
+                <div className="space-y-4">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="m-0 text-[34px] font-bold leading-none text-slate-900">Connection Detail</h3>
+                      {connectionDetailProject ? (
+                        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+                          {(() => {
+                            const statusMeta = connectionStatusMeta(connectionDetailProject.status)
+                            return (
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-full px-3 py-1 font-medium ${
+                                  statusMeta.tone === "active"
+                                    ? "bg-emerald-50 text-emerald-700"
+                                    : statusMeta.tone === "paused"
+                                      ? "bg-[#F0EFEC] text-slate-700"
+                                      : "bg-amber-50 text-amber-700"
+                                }`}
+                              >
+                                {statusMeta.tone === "active" ? "🟢" : statusMeta.tone === "paused" ? "⏸️" : "⚠"}
+                                {statusMeta.text}
+                              </span>
+                            )
+                          })()}
+                          <span className="inline-flex items-center gap-1 rounded-full bg-[#F0EFEC] px-3 py-1 font-medium text-slate-700 mono-ui">
+                            Project ID: {connectionDetailId}
+                          </span>
+                          <span className="inline-flex items-center gap-1 rounded-full bg-[#F0EFEC] px-3 py-1 font-medium text-slate-700">
+                            关联账号
+                            {Array.isArray(connectionDetailProject.app_ids)
+                              ? connectionDetailProject.app_ids.length
+                              : (connectionDetailProject.app_id ? 1 : 0)}
+                            个
+                          </span>
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-sm text-slate-500 mono-ui">Project ID: {connectionDetailId}</p>
+                      )}
+                    </div>
+                    <button className="btn-subtle" onClick={() => navigate("/application/connection")}>返回列表</button>
                   </div>
-                  <button className="btn-subtle" onClick={() => navigate("/application/connection")}>返回列表</button>
                 </div>
 
                 {connectionDetailLoading ? (
-                  <p className="text-sm text-slate-500">加载详情中...</p>
+                  <div className="rounded-sm border border-slate-200 bg-[#F0EFEC] px-3 py-2 text-sm text-slate-500">加载详情中...</div>
                 ) : connectionDetailError ? (
                   <div className="rounded-sm border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
                     加载失败：{connectionDetailError}
                   </div>
                 ) : !connectionDetailProject ? (
-                  <p className="text-sm text-slate-500">未找到该 Connection 项目。</p>
+                  <div className="rounded-sm border border-slate-200 bg-[#F0EFEC] px-3 py-2 text-sm text-slate-500">未找到该 Connection 项目。</div>
                 ) : (
                   <>
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -3206,64 +3406,38 @@ function App() {
                         <p className="mt-1 text-sm font-semibold text-slate-900">{connectionDetailProject.name || "-"}</p>
                       </div>
                       <div className="rounded-sm border border-slate-200 bg-[#F0EFEC] p-3">
-                        <p className="text-xs text-slate-500">Platform</p>
-                        <p className="mt-1 text-sm font-semibold text-slate-900">
+                        <p className="text-xs text-slate-500">Source Type</p>
+                        <p className="mt-1 inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
+                          <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-sky-100 text-[10px] font-semibold text-sky-700">
+                            {connectionSourceIcon(connectionDetailProject.platform_code)}
+                          </span>
                           {platformMappingLabel(connectionDetailProject.platform_code, platformLabelMap)}
                         </p>
                       </div>
                       <div className="rounded-sm border border-slate-200 bg-[#F0EFEC] p-3">
                         <p className="text-xs text-slate-500">Destination</p>
-                        <p className="mt-1 text-sm font-semibold text-slate-900">{connectionDetailProject.destination || "-"}</p>
+                        <p className="mt-1 inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
+                          <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-indigo-100 text-[10px] font-bold text-indigo-700">
+                            {connectionDestinationIcon(connectionDetailProject.destination)}
+                          </span>
+                          {connectionDetailProject.destination || "-"}
+                        </p>
                       </div>
                       <div className="rounded-sm border border-slate-200 bg-[#F0EFEC] p-3">
-                        <p className="text-xs text-slate-500">关联 App_ID 数量</p>
-                        <p className="mt-1 text-sm font-semibold text-slate-900">
-                          {Array.isArray(connectionDetailProject.app_ids)
-                            ? connectionDetailProject.app_ids.length
-                            : (connectionDetailProject.app_id ? 1 : 0)}
-                        </p>
+                        <p className="text-xs text-slate-500">Schedule</p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900 mono-ui">{connectionDetailProject.schedule_cron || "-"}</p>
                       </div>
                     </div>
 
-                    <div className="overflow-auto rounded-lg border border-slate-200">
-                      <table className="table-shell min-w-[900px]">
-                        <thead>
-                          <tr className="table-head-row">
-                            <th className="table-head-cell text-center">Stream</th>
-                            <th className="table-head-cell text-center">Sync Mode</th>
-                            <th className="table-head-cell text-center">Cursor Field</th>
-                            <th className="table-head-cell text-center">最后运行时间</th>
-                            <th className="table-head-cell text-center">操作</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {connectionDetailStreams.map((stream) => (
-                            <tr key={stream.id}>
-                              <td className="table-cell text-center mono-ui">{stream.stream_name}</td>
-                              <td className="table-cell text-center mono-ui">{syncModeLabel(stream.sync_mode)}</td>
-                              <td className="table-cell text-center mono-ui">{stream.cursor_field || "-"}</td>
-                              <td className="table-cell text-center mono-ui">
-                                {formatTimeText(stream.last_routine_finished_at)}
-                              </td>
-                              <td className="table-cell text-center">
-                                <button
-                                  className="btn-subtle px-2 py-1 text-xs"
-                                  onClick={() => handlePreviewStream(connectionDetailProject.id, stream.stream_name)}
-                                >
-                                  Preview
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                          {connectionDetailStreams.length === 0 && (
-                            <tr>
-                              <td className="table-cell text-center text-slate-500" colSpan={5}>
-                                当前 Connection 暂未配置 stream
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
+                    <div className="overflow-auto rounded-lg border border-slate-200 bg-[#F0EFEC] p-2">
+                      <Table
+                        rowKey={(row) => Number(row.id) || String(row.stream_name || "")}
+                        dataSource={connectionDetailStreams}
+                        columns={connectionDetailColumns}
+                        pagination={false}
+                        size="middle"
+                        locale={{ emptyText: "当前 Connection 暂未配置 stream" }}
+                      />
                     </div>
                   </>
                 )}
@@ -3289,158 +3463,38 @@ function App() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button className="btn-brand" onClick={openConnectionWizard}>+ 新建项目</button>
-                  <button
-                    className="connection-more-btn inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-[#F0EFEC] text-slate-600 hover:border-slate-300 hover:text-slate-900"
-                    onClick={() => setConnectionHeaderMenuOpen((v) => !v)}
-                    title="更多操作"
-                  >
-                    ⋮
-                  </button>
-                  {connectionHeaderMenuOpen && (
-                    <div className="connection-more-menu absolute right-8 top-[220px] z-20 w-44 rounded-xl border border-slate-200 bg-[#F0EFEC] p-1 shadow-[0_12px_30px_rgba(15,23,42,0.14)]">
-                      <button className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-[#E7E6E2]" onClick={() => loadConnections().catch((e) => showToast(e.message))}>刷新列表</button>
-                      <button className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-[#E7E6E2]" onClick={() => setAutoRefresh((v) => !v)}>
-                        自动刷新: {autoRefresh ? "开" : "关"}
-                      </button>
-                      <button className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-[#E7E6E2]" onClick={() => showToast("属性面板建设中")}>Attributes</button>
-                    </div>
-                  )}
+                  <Button type="primary" onClick={openConnectionWizard}>+ 新建项目</Button>
+                  <Dropdown menu={connectionHeaderMenu} trigger={["click"]}>
+                    <Button>更多</Button>
+                  </Dropdown>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
-                <div className="relative min-w-[260px] flex-1">
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span>
-                  <input
-                    className="input-base pl-9"
-                    value={connectionSearch}
-                    onChange={(e) => setConnectionSearch(e.target.value)}
-                    placeholder="Search by project name..."
-                  />
-                </div>
+                <Input
+                  allowClear
+                  value={connectionSearch}
+                  onChange={(e) => setConnectionSearch(e.target.value)}
+                  placeholder="Search by project name..."
+                  className="max-w-xl"
+                />
               </div>
             </div>
 
-            <div className="overflow-auto rounded-lg border border-slate-200 bg-[#F0EFEC]">
-              <table className="connection-table w-full min-w-[980px] border-collapse text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200">
-                    <th className="w-14 bg-[#F0EFEC] px-4 py-3 text-center text-xs font-semibold text-slate-600">
-                      <input
-                        className="mx-auto block"
-                        type="checkbox"
-                        checked={allConnectionsSelected}
-                        ref={(el) => {
-                          if (el) el.indeterminate = someConnectionsSelected
-                        }}
-                        onChange={(e) => toggleSelectAllConnections(e.target.checked)}
-                      />
-                    </th>
-                    <th className="bg-[#F0EFEC] px-6 py-3 text-center text-xs font-semibold text-slate-600">Connection name</th>
-                    <th className="bg-[#F0EFEC] px-6 py-3 text-center text-xs font-semibold text-slate-600">Source type</th>
-                    <th className="bg-[#F0EFEC] px-6 py-3 text-center text-xs font-semibold text-slate-600">Destination</th>
-                    <th className="bg-[#F0EFEC] px-6 py-3 text-center text-xs font-semibold text-slate-600">Status</th>
-                    <th className="bg-[#F0EFEC] px-6 py-3 text-center text-xs font-semibold text-slate-600">Last synced</th>
-                    <th className="bg-[#F0EFEC] px-6 py-3 text-center text-xs font-semibold text-slate-600">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="text-sm">
-                  {filteredConnections.map((conn) => {
-                    const statusMeta = connectionStatusMeta(conn.status)
-                    const projectId = Number(conn.id)
-                    const executionSubmitting = !!executionSubmittingByProject[projectId]
-                    const deleting = !!connectionDeletingByProject[projectId]
-                    return (
-                      <tr key={conn.id} className="group border-b border-slate-200 transition-colors hover:bg-[#E7E6E2]/70">
-                          <td className="w-14 px-4 py-3 text-center align-middle">
-                            <input
-                              className="mx-auto block"
-                              type="checkbox"
-                              checked={selectedConnectionIds.includes(Number(conn.id))}
-                              onChange={(e) => toggleSelectConnection(conn.id, e.target.checked)}
-                            />
-                          </td>
-                          <td className="px-6 py-3 text-center align-middle">
-                            <button className="mx-auto inline-flex items-center justify-center text-base font-semibold text-[#2563eb] hover:underline" onClick={() => openConnectionDetailPage(conn)}>
-                              {conn.name}
-                            </button>
-                          </td>
-                          <td className="px-6 py-3 text-center align-middle">
-                            <div className="mx-auto flex w-fit flex-col items-center gap-0.5 text-center">
-                              <span className="inline-flex items-center justify-center gap-2 text-slate-800">
-                                <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-sky-100 text-[10px] font-semibold text-sky-700">
-                                  {connectionSourceIcon(conn.platform_code)}
-                                </span>
-                                <span className="text-sm">{platformMappingLabel(conn.platform_code, platformLabelMap)}</span>
-                              </span>
-                              {Array.isArray(conn.app_ids) && conn.app_ids.length > 1 && (
-                                <span className="inline-flex w-fit items-center justify-center rounded bg-[#F0EFEC] px-1.5 py-0.5 text-[11px] font-medium text-slate-500">
-                                  包含 {conn.app_ids.length} 个授权账号
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-6 py-3 text-center align-middle">
-                            <span className="mx-auto inline-flex items-center gap-2 text-sm text-slate-800">
-                              <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-indigo-100 text-[10px] font-bold text-indigo-700">
-                                {connectionDestinationIcon(conn.destination)}
-                              </span>
-                              <span className="text-slate-600">{conn.destination || "ClickHouse_DW"}</span>
-                            </span>
-                          </td>
-                          <td className="px-6 py-3 text-center align-middle">
-                            <span
-                              className={`mx-auto inline-flex items-center rounded-full px-4 py-1 text-sm font-semibold ${
-                                statusMeta.tone === "active"
-                                  ? "bg-emerald-100 text-emerald-700"
-                                  : statusMeta.tone === "paused"
-                                    ? "bg-slate-200 text-slate-700"
-                                    : "bg-amber-100 text-amber-700"
-                              }`}
-                            >
-                              {statusMeta.text}
-                            </span>
-                          </td>
-                          <td className="px-6 py-3 text-center align-middle text-sm text-slate-600">
-                            {formatTimeText(conn.last_sync_time)}
-                          </td>
-                          <td className="px-6 py-3 text-center align-middle">
-                            <div className="inline-flex items-center justify-center gap-3">
-                              <button className="text-sm font-medium text-slate-500 hover:text-[#0000E1]" onClick={() => openConnectionManageWorkspace(conn)}>
-                                Edit
-                              </button>
-                              <button
-                                className="text-sm font-medium text-[#0000E1] hover:underline disabled:cursor-not-allowed disabled:text-slate-400"
-                                onClick={() => handleRunNowConnection(conn)}
-                                disabled={executionSubmitting || deleting}
-                              >
-                                {executionSubmitting ? "Running..." : "Run Now"}
-                              </button>
-                              <button
-                                className="text-sm font-medium text-rose-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-400"
-                                onClick={() => handleDeleteSingleConnection(conn)}
-                                disabled={deleting}
-                              >
-                                {deleting ? "Deleting..." : "Delete"}
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                    )
-                  })}
-                  {!connectionsLoading && filteredConnections.length === 0 && (
-                    <tr>
-                      <td className="py-8 text-center text-sm text-slate-500" colSpan={7}>暂无连接，点击右上角创建新项目</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+            <div className="overflow-auto rounded-lg border border-slate-200 bg-[#F0EFEC] p-2">
+              <Table
+                rowKey={(conn) => Number(conn.id) || String(conn.id)}
+                dataSource={filteredConnections}
+                loading={connectionsLoading}
+                columns={connectionListColumns}
+                rowSelection={connectionRowSelection}
+                pagination={false}
+                size="middle"
+                locale={{ emptyText: "暂无连接，点击右上角创建新项目" }}
+              />
             </div>
             <ConnectionWizardModal
-              portalRoot={portalRoot}
               isOpen={isConnectionCreateView}
-              visible
               mode={connectionDrawerMode}
               onClose={closeConnectionWizard}
             >
@@ -3449,69 +3503,60 @@ function App() {
                       <div className="grid gap-3">
                       <label className="field-label">
                         项目名称
-                        <input className="input-base mt-1" value={wizardTaskName} onChange={(e) => setWizardTaskName(e.target.value)} placeholder="例如：红书聚光_离线报表项目" />
+                        <Input className="mt-1" value={wizardTaskName} onChange={(e) => setWizardTaskName(e.target.value)} placeholder="例如：红书聚光_离线报表项目" />
                       </label>
                       <label className="field-label">
                         外部平台
-                        <select
-                          className="input-base mt-1"
-                          value={wizardPlatform}
-                          onChange={(e) => {
-                            setWizardPlatform(e.target.value)
+                        <Select
+                          className="mt-1"
+                          value={wizardPlatform || undefined}
+                          onChange={(value) => {
+                            setWizardPlatform(value || "")
                             setWizardSelectedAppIds([])
                             setWizardTestResult(null)
                           }}
-                        >
-                          <option value="">请选择平台</option>
-                          {connectionPlatformOptions.map((item) => (
-                            <option key={item.value} value={item.value}>{item.label}</option>
-                          ))}
-                        </select>
+                          options={[
+                            { value: "", label: "请选择平台" },
+                            ...connectionPlatformOptions.map((item) => ({ value: item.value, label: item.label })),
+                          ]}
+                        />
                       </label>
                       <div className="field-label">
                         凭证 ID (app_id)
                         <div className="mt-1 rounded-xl bg-[#F0EFEC] p-3">
-                          <input
-                            className="input-base"
+                          <Input
                             placeholder="搜索 app_id / name"
                             value={wizardCredentialSearch}
                             onChange={(e) => setWizardCredentialSearch(e.target.value)}
                             disabled={!wizardPlatform}
                           />
                           <div className="mt-3 flex items-center justify-between text-sm text-slate-600">
-                            <label className="inline-flex items-center gap-2">
-                              <input
-                                type="checkbox"
-                                className="h-4 w-4 rounded border-slate-300 text-[#0000E1] focus:ring-[#0000E1]"
-                                checked={filteredWizardCredentialOptions.length > 0 && selectedFilteredCredentialCount === filteredWizardCredentialOptions.length}
-                                ref={(el) => {
-                                  if (!el) return
-                                  el.indeterminate = selectedFilteredCredentialCount > 0 && selectedFilteredCredentialCount < filteredWizardCredentialOptions.length
-                                }}
-                                onChange={(e) => {
-                                  const checked = e.target.checked
-                                  const visibleIds = filteredWizardCredentialOptions.map((x) => x.appId)
-                                  setWizardSelectedAppIds((prev) => {
-                                    if (checked) return Array.from(new Set([...prev, ...visibleIds]))
-                                    const visible = new Set(visibleIds)
-                                    return prev.filter((x) => !visible.has(x))
-                                  })
-                                  setWizardTestResult(null)
-                                }}
-                                disabled={!wizardPlatform || filteredWizardCredentialOptions.length === 0}
-                              />
-                              <span>
-                                {wizardCredentialSearch.trim()
-                                  ? `全选搜索结果 (${filteredWizardCredentialOptions.length} 项)`
-                                  : `全选 (共 ${filteredWizardCredentialOptions.length} 项)`}
-                              </span>
-                            </label>
+                            <Checkbox
+                              checked={filteredWizardCredentialOptions.length > 0 && selectedFilteredCredentialCount === filteredWizardCredentialOptions.length}
+                              indeterminate={selectedFilteredCredentialCount > 0 && selectedFilteredCredentialCount < filteredWizardCredentialOptions.length}
+                              onChange={(e) => {
+                                const checked = e.target.checked
+                                const visibleIds = filteredWizardCredentialOptions.map((x) => x.appId)
+                                setWizardSelectedAppIds((prev) => {
+                                  if (checked) return Array.from(new Set([...prev, ...visibleIds]))
+                                  const visible = new Set(visibleIds)
+                                  return prev.filter((x) => !visible.has(x))
+                                })
+                                setWizardTestResult(null)
+                              }}
+                              disabled={!wizardPlatform || filteredWizardCredentialOptions.length === 0}
+                            >
+                              {wizardCredentialSearch.trim()
+                                ? `全选搜索结果 (${filteredWizardCredentialOptions.length} 项)`
+                                : `全选 (共 ${filteredWizardCredentialOptions.length} 项)`}
+                            </Checkbox>
                             {selectedFilteredCredentialCount > 0 && (
                               <div className="inline-flex items-center gap-3">
                                 <span className="text-xs text-[#0000E1]">已选 {selectedFilteredCredentialCount} 项</span>
-                                <button
-                                  type="button"
-                                  className="text-xs text-slate-500 transition hover:text-rose-500"
+                                <Button
+                                  type="text"
+                                  size="small"
+                                  danger
                                   onClick={() => {
                                     const visible = new Set(filteredWizardCredentialOptions.map((x) => x.appId))
                                     setWizardSelectedAppIds((prev) => prev.filter((x) => !visible.has(x)))
@@ -3519,16 +3564,14 @@ function App() {
                                   }}
                                 >
                                   清空已选
-                                </button>
+                                </Button>
                               </div>
                             )}
                           </div>
                           <div className="mt-2 max-h-[180px] space-y-1 overflow-auto rounded-lg border border-slate-100 bg-[#F0EFEC] p-2">
                             {filteredWizardCredentialOptions.map((item) => (
-                              <label key={item.appId} className="flex items-center gap-2 rounded-md px-1 py-1 text-sm text-slate-700 hover:bg-[#E7E6E2]">
-                                <input
-                                  type="checkbox"
-                                  className="h-4 w-4 rounded border-slate-300 text-[#0000E1] focus:ring-[#0000E1]"
+                              <div key={item.appId} className="rounded-md px-1 py-1 hover:bg-[#E7E6E2]">
+                                <Checkbox
                                   checked={wizardSelectedAppIds.includes(item.appId)}
                                   onChange={(e) => {
                                     const checked = e.target.checked
@@ -3538,9 +3581,10 @@ function App() {
                                     })
                                     setWizardTestResult(null)
                                   }}
-                                />
-                                <span className="mono-ui">{item.label}</span>
-                              </label>
+                                >
+                                  <span className="mono-ui text-sm">{item.label}</span>
+                                </Checkbox>
+                              </div>
                             ))}
                             {filteredWizardCredentialOptions.length === 0 && (
                               <p className="m-0 text-xs text-slate-400">{wizardPlatform ? "当前搜索无匹配凭证" : "请先选择平台"}</p>
@@ -3550,91 +3594,47 @@ function App() {
                       </div>
                       <label className="field-label">
                         写入目标
-                        <select className="input-base mt-1" value={wizardDestination} onChange={(e) => setWizardDestination(e.target.value)}>
-                          {destinationProfiles.length > 0
-                            ? destinationProfiles.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)
-                            : (
-                              <>
-                                <option value="ClickHouse_DW">ClickHouse_DW</option>
-                                <option value="PostgreSQL_DW">PostgreSQL_DW</option>
-                              </>
-                            )}
-                        </select>
+                        <Select
+                          className="mt-1"
+                          value={wizardDestination}
+                          onChange={setWizardDestination}
+                          options={
+                            destinationProfiles.length > 0
+                              ? destinationProfiles.map((item) => ({ value: item.name, label: item.name }))
+                              : [
+                                { value: "ClickHouse_DW", label: "ClickHouse_DW" },
+                                { value: "PostgreSQL_DW", label: "PostgreSQL_DW" },
+                              ]
+                          }
+                        />
                       </label>
                       <div className="mt-3">
                         <div className="mb-2 flex items-center justify-between">
                           <label className="block text-sm font-medium text-slate-800">同步频率 (Schedule)</label>
-                          <div className="flex rounded-md bg-[#F0EFEC] p-0.5">
-                            <button
-                              type="button"
-                              className={`rounded px-2.5 py-1 text-xs font-medium ${
-                                wizardScheduleMode === "basic"
-                                  ? "border border-slate-200/60 bg-[#F0EFEC] text-slate-800 shadow-sm"
-                                  : "text-slate-500 hover:text-slate-700"
-                              }`}
-                              onClick={() => setWizardScheduleMode("basic")}
-                            >
-                              基础配置
-                            </button>
-                            <button
-                              type="button"
-                              className={`rounded px-2.5 py-1 text-xs font-medium ${
-                                wizardScheduleMode === "advanced"
-                                  ? "border border-slate-200/60 bg-[#F0EFEC] text-slate-800 shadow-sm"
-                                  : "text-slate-500 hover:text-slate-700"
-                              }`}
-                              onClick={() => setWizardScheduleMode("advanced")}
-                            >
-                              高级(Cron)
-                            </button>
-                          </div>
+                          <Segmented
+                            size="small"
+                            value={wizardScheduleMode}
+                            onChange={setWizardScheduleMode}
+                            options={[
+                              { label: "基础配置", value: "basic" },
+                              { label: "高级(Cron)", value: "advanced" },
+                            ]}
+                          />
                         </div>
 
                         <div className="mb-2 flex flex-wrap items-center gap-1 rounded-lg bg-[#F0EFEC] p-1">
-                          <button
-                            type="button"
-                            className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
-                              wizardScheduleMode === "basic" && wizardFrequencyType === "daily" && wizardDailyTime === "02:00"
-                                ? "bg-[#F0EFEC] text-slate-800 shadow-sm"
-                                : "text-slate-500 hover:bg-[#F0EFEC]/70 hover:text-slate-700"
-                            }`}
-                            onClick={() => applySchedulePreset("daily_2am")}
-                          >
+                          <Button type="default" size="small" onClick={() => applySchedulePreset("daily_2am")}>
                             每天凌晨 2 点
-                          </button>
-                          <button
-                            type="button"
-                            className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
-                              wizardScheduleMode === "basic" && wizardFrequencyType === "hourly" && wizardHourlyInterval === "1"
-                                ? "bg-[#F0EFEC] text-slate-800 shadow-sm"
-                                : "text-slate-500 hover:bg-[#F0EFEC]/70 hover:text-slate-700"
-                            }`}
-                            onClick={() => applySchedulePreset("hourly_1")}
-                          >
+                          </Button>
+                          <Button type="default" size="small" onClick={() => applySchedulePreset("hourly_1")}>
                             每 1 小时
-                          </button>
-                          <button
-                            type="button"
-                            className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
-                              wizardScheduleMode === "basic" && wizardFrequencyType === "hourly" && wizardHourlyInterval === "6"
-                                ? "bg-[#F0EFEC] text-slate-800 shadow-sm"
-                                : "text-slate-500 hover:bg-[#F0EFEC]/70 hover:text-slate-700"
-                            }`}
-                            onClick={() => applySchedulePreset("hourly_6")}
-                          >
+                          </Button>
+                          <Button type="default" size="small" onClick={() => applySchedulePreset("hourly_6")}>
                             每 6 小时
-                          </button>
-                          <button
-                            type="button"
-                            className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
-                              wizardScheduleMode === "advanced"
-                                ? "bg-[#F0EFEC] text-slate-800 shadow-sm"
-                                : "text-slate-500 hover:bg-[#F0EFEC]/70 hover:text-slate-700"
-                            }`}
-                            onClick={() => setWizardScheduleMode("advanced")}
-                          >
+                          </Button>
+                          <Button type="default" size="small" onClick={() => setWizardScheduleMode("advanced")}>
                             自定义...
-                          </button>
+                          </Button>
                         </div>
 
                         {wizardScheduleMode === "basic" ? (
@@ -3644,98 +3644,75 @@ function App() {
                               <div className="inline-flex min-w-max items-center gap-2.5 whitespace-nowrap text-[14px] text-slate-600">
                               <span className="whitespace-nowrap text-slate-500">每</span>
 
-                              <span className="group relative whitespace-nowrap">
-                                <select
-                                  className="h-8 cursor-pointer appearance-none rounded-md bg-[#F0EFEC] py-1 pl-3 pr-8 text-sm font-medium text-slate-800 transition-colors hover:bg-[#E1DFDB] focus:outline-none focus:ring-0"
-                                  value={wizardFrequencyType}
-                                  onChange={(e) => setWizardFrequencyType(e.target.value)}
-                                >
-                                  <option value="daily">天 (Daily)</option>
-                                  <option value="hourly">小时 (Hourly)</option>
-                                  <option value="weekly">周 (Weekly)</option>
-                                </select>
-                                <svg className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500 group-hover:text-slate-700" viewBox="0 0 20 20" fill="currentColor">
-                                  <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.25 4.51a.75.75 0 0 1-1.08 0l-4.25-4.51a.75.75 0 0 1 .02-1.06Z" clipRule="evenodd" />
-                                </svg>
-                              </span>
+                              <Select
+                                size="small"
+                                value={wizardFrequencyType}
+                                onChange={setWizardFrequencyType}
+                                options={[
+                                  { value: "daily", label: "天 (Daily)" },
+                                  { value: "hourly", label: "小时 (Hourly)" },
+                                  { value: "weekly", label: "周 (Weekly)" },
+                                ]}
+                                style={{ width: 128 }}
+                              />
 
                               {wizardFrequencyType === "hourly" && (
-                                <span className="group relative whitespace-nowrap">
-                                  <select
-                                    className="h-8 cursor-pointer appearance-none rounded-md bg-[#F0EFEC] py-1 pl-3 pr-8 text-sm font-medium text-slate-800 transition-colors hover:bg-[#E1DFDB] focus:outline-none focus:ring-0"
-                                    value={wizardHourlyInterval}
-                                    onChange={(e) => {
-                                      setWizardHourlyMode("interval")
-                                      setWizardHourlyInterval(e.target.value)
-                                    }}
-                                  >
-                                    <option value="1">1 小时</option>
-                                    <option value="2">2 小时</option>
-                                    <option value="4">4 小时</option>
-                                    <option value="6">6 小时</option>
-                                    <option value="12">12 小时</option>
-                                  </select>
-                                  <svg className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500 group-hover:text-slate-700" viewBox="0 0 20 20" fill="currentColor">
-                                    <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.25 4.51a.75.75 0 0 1-1.08 0l-4.25-4.51a.75.75 0 0 1 .02-1.06Z" clipRule="evenodd" />
-                                  </svg>
-                                </span>
+                                <Select
+                                  size="small"
+                                  value={wizardHourlyInterval}
+                                  onChange={(value) => {
+                                    setWizardHourlyMode("interval")
+                                    setWizardHourlyInterval(value)
+                                  }}
+                                  options={[
+                                    { value: "1", label: "1 小时" },
+                                    { value: "2", label: "2 小时" },
+                                    { value: "4", label: "4 小时" },
+                                    { value: "6", label: "6 小时" },
+                                    { value: "12", label: "12 小时" },
+                                  ]}
+                                  style={{ width: 110 }}
+                                />
                               )}
 
                               {wizardFrequencyType === "daily" && (
                                 <>
                                   <span className="whitespace-nowrap text-slate-500">的</span>
-                                  <span className="group relative whitespace-nowrap">
-                                    <select
-                                      className="h-8 cursor-pointer appearance-none rounded-md bg-[#F0EFEC] py-1 pl-3 pr-8 text-sm font-medium text-slate-800 transition-colors hover:bg-[#E1DFDB] focus:outline-none focus:ring-0"
-                                      value={wizardDailyTime}
-                                      onChange={(e) => setWizardDailyTime(e.target.value)}
-                                    >
-                                      {scheduleTimeOptions.map((item) => (
-                                        <option key={item} value={item}>{item}</option>
-                                      ))}
-                                    </select>
-                                    <svg className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500 group-hover:text-slate-700" viewBox="0 0 20 20" fill="currentColor">
-                                      <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.25 4.51a.75.75 0 0 1-1.08 0l-4.25-4.51a.75.75 0 0 1 .02-1.06Z" clipRule="evenodd" />
-                                    </svg>
-                                  </span>
+                                  <Select
+                                    size="small"
+                                    value={wizardDailyTime}
+                                    onChange={setWizardDailyTime}
+                                    options={scheduleTimeOptions.map((item) => ({ value: item, label: item }))}
+                                    style={{ width: 110 }}
+                                  />
                                 </>
                               )}
 
                               {wizardFrequencyType === "weekly" && (
                                 <>
                                   <span className="whitespace-nowrap text-slate-500">的</span>
-                                  <span className="group relative whitespace-nowrap">
-                                    <select
-                                      className="h-8 cursor-pointer appearance-none rounded-md bg-[#F0EFEC] py-1 pl-3 pr-8 text-sm font-medium text-slate-800 transition-colors hover:bg-[#E1DFDB] focus:outline-none focus:ring-0"
-                                      value={wizardWeeklyDays[0] || "MON"}
-                                      onChange={(e) => setWizardWeeklyDays([e.target.value])}
-                                    >
-                                      <option value="MON">周一</option>
-                                      <option value="TUE">周二</option>
-                                      <option value="WED">周三</option>
-                                      <option value="THU">周四</option>
-                                      <option value="FRI">周五</option>
-                                      <option value="SAT">周六</option>
-                                      <option value="SUN">周日</option>
-                                    </select>
-                                    <svg className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500 group-hover:text-slate-700" viewBox="0 0 20 20" fill="currentColor">
-                                      <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.25 4.51a.75.75 0 0 1-1.08 0l-4.25-4.51a.75.75 0 0 1 .02-1.06Z" clipRule="evenodd" />
-                                    </svg>
-                                  </span>
-                                  <span className="group relative whitespace-nowrap">
-                                    <select
-                                      className="h-8 cursor-pointer appearance-none rounded-md bg-[#F0EFEC] py-1 pl-3 pr-8 text-sm font-medium text-slate-800 transition-colors hover:bg-[#E1DFDB] focus:outline-none focus:ring-0"
-                                      value={wizardWeeklyTime}
-                                      onChange={(e) => setWizardWeeklyTime(e.target.value)}
-                                    >
-                                      {scheduleTimeOptions.map((item) => (
-                                        <option key={item} value={item}>{item}</option>
-                                      ))}
-                                    </select>
-                                    <svg className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500 group-hover:text-slate-700" viewBox="0 0 20 20" fill="currentColor">
-                                      <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.25 4.51a.75.75 0 0 1-1.08 0l-4.25-4.51a.75.75 0 0 1 .02-1.06Z" clipRule="evenodd" />
-                                    </svg>
-                                  </span>
+                                  <Select
+                                    size="small"
+                                    value={wizardWeeklyDays[0] || "MON"}
+                                    onChange={(value) => setWizardWeeklyDays([value])}
+                                    options={[
+                                      { value: "MON", label: "周一" },
+                                      { value: "TUE", label: "周二" },
+                                      { value: "WED", label: "周三" },
+                                      { value: "THU", label: "周四" },
+                                      { value: "FRI", label: "周五" },
+                                      { value: "SAT", label: "周六" },
+                                      { value: "SUN", label: "周日" },
+                                    ]}
+                                    style={{ width: 100 }}
+                                  />
+                                  <Select
+                                    size="small"
+                                    value={wizardWeeklyTime}
+                                    onChange={setWizardWeeklyTime}
+                                    options={scheduleTimeOptions.map((item) => ({ value: item, label: item }))}
+                                    style={{ width: 110 }}
+                                  />
                                 </>
                               )}
 
@@ -3754,8 +3731,8 @@ function App() {
                           <div className="rounded-lg border border-slate-200 bg-[#F0EFEC]/50 p-4">
                             <label className="field-label">
                               Cron 表达式
-                              <input
-                                className="input-base mt-1 mono-ui"
+                              <Input
+                                className="mt-1 mono-ui"
                                 value={wizardScheduleCron}
                                 onChange={(e) => setWizardScheduleCron(e.target.value)}
                                 placeholder="例如：0 2 * * *"
@@ -3773,16 +3750,16 @@ function App() {
                             ) : null}
                           </div>
                           <div className="flex items-center gap-2">
-                            <button className="btn-subtle" onClick={handleWizardTestConnection} disabled={wizardTestLoading || !wizardPlatform || wizardSelectedAppIds.length === 0}>
+                            <Button onClick={handleWizardTestConnection} loading={wizardTestLoading} disabled={!wizardPlatform || wizardSelectedAppIds.length === 0}>
                               {wizardTestLoading ? "测试中..." : "测试连接"}
-                            </button>
-                            <button
-                              className="cxm-ok px-5 py-2"
+                            </Button>
+                            <Button
+                              type="primary"
                               onClick={saveConnectionProjectSetup}
-                              disabled={wizardConnectionSaving}
+                              loading={wizardConnectionSaving}
                             >
                               {wizardConnectionSaving ? "保存中..." : "保存项目"}
-                            </button>
+                            </Button>
                           </div>
                         </div>
                       </div>
@@ -3807,47 +3784,36 @@ function App() {
                           <p className="m-0 text-sm font-semibold text-slate-800">授权账号 (app_id)</p>
                           <span className="text-xs text-slate-500">已选 {wizardSelectedAppIds.length} 项</span>
                         </div>
-                        <input
-                          className="input-base"
+                        <Input
                           placeholder="搜索 app_id / name"
                           value={wizardCredentialSearch}
                           onChange={(e) => setWizardCredentialSearch(e.target.value)}
                           disabled={!wizardPlatform}
                         />
                         <div className="mt-3 flex items-center justify-between text-sm text-slate-600">
-                          <label className="inline-flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4 rounded border-slate-300 text-[#0000E1] focus:ring-[#0000E1]"
-                              checked={filteredWizardCredentialOptions.length > 0 && selectedFilteredCredentialCount === filteredWizardCredentialOptions.length}
-                              ref={(el) => {
-                                if (!el) return
-                                el.indeterminate = selectedFilteredCredentialCount > 0 && selectedFilteredCredentialCount < filteredWizardCredentialOptions.length
-                              }}
-                              onChange={(e) => {
-                                const checked = e.target.checked
-                                const visibleIds = filteredWizardCredentialOptions.map((x) => x.appId)
-                                setWizardSelectedAppIds((prev) => {
-                                  if (checked) return Array.from(new Set([...prev, ...visibleIds]))
-                                  const visible = new Set(visibleIds)
-                                  return prev.filter((x) => !visible.has(x))
-                                })
-                              }}
-                              disabled={!wizardPlatform || filteredWizardCredentialOptions.length === 0}
-                            />
-                            <span>
-                              {wizardCredentialSearch.trim()
-                                ? `全选搜索结果 (${filteredWizardCredentialOptions.length} 项)`
-                                : `全选 (共 ${filteredWizardCredentialOptions.length} 项)`}
-                            </span>
-                          </label>
+                          <Checkbox
+                            checked={filteredWizardCredentialOptions.length > 0 && selectedFilteredCredentialCount === filteredWizardCredentialOptions.length}
+                            indeterminate={selectedFilteredCredentialCount > 0 && selectedFilteredCredentialCount < filteredWizardCredentialOptions.length}
+                            onChange={(e) => {
+                              const checked = e.target.checked
+                              const visibleIds = filteredWizardCredentialOptions.map((x) => x.appId)
+                              setWizardSelectedAppIds((prev) => {
+                                if (checked) return Array.from(new Set([...prev, ...visibleIds]))
+                                const visible = new Set(visibleIds)
+                                return prev.filter((x) => !visible.has(x))
+                              })
+                            }}
+                            disabled={!wizardPlatform || filteredWizardCredentialOptions.length === 0}
+                          >
+                            {wizardCredentialSearch.trim()
+                              ? `全选搜索结果 (${filteredWizardCredentialOptions.length} 项)`
+                              : `全选 (共 ${filteredWizardCredentialOptions.length} 项)`}
+                          </Checkbox>
                         </div>
                         <div className="mt-2 max-h-[180px] space-y-1 overflow-auto rounded-lg border border-slate-100 bg-[#F0EFEC] p-2">
                           {filteredWizardCredentialOptions.map((item) => (
-                            <label key={item.appId} className="flex items-center gap-2 rounded-md px-1 py-1 text-sm text-slate-700 hover:bg-[#E7E6E2]">
-                              <input
-                                type="checkbox"
-                                className="h-4 w-4 rounded border-slate-300 text-[#0000E1] focus:ring-[#0000E1]"
+                            <div key={item.appId} className="rounded-md px-1 py-1 hover:bg-[#E7E6E2]">
+                              <Checkbox
                                 checked={wizardSelectedAppIds.includes(item.appId)}
                                 onChange={(e) => {
                                   const checked = e.target.checked
@@ -3856,9 +3822,10 @@ function App() {
                                     return prev.filter((x) => x !== item.appId)
                                   })
                                 }}
-                              />
-                              <span className="mono-ui">{item.label}</span>
-                            </label>
+                              >
+                                <span className="mono-ui text-sm">{item.label}</span>
+                              </Checkbox>
+                            </div>
                           ))}
                           {filteredWizardCredentialOptions.length === 0 && (
                             <p className="m-0 text-xs text-slate-400">{wizardPlatform ? "当前平台暂无可选凭证" : "请先选择平台"}</p>
@@ -3867,36 +3834,21 @@ function App() {
                       </div>
 
                       <div className="mb-3 space-y-2">
-                        <div className="relative">
-                          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span>
-                          <input
-                            className="input-base pl-9"
-                            value={wizardSearch}
-                            onChange={(e) => setWizardSearch(e.target.value)}
-                            placeholder="搜索接口名称或描述..."
-                          />
-                        </div>
+                        <Input
+                          value={wizardSearch}
+                          onChange={(e) => setWizardSearch(e.target.value)}
+                          placeholder="搜索接口名称或描述..."
+                        />
                         <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
-                              wizardQuickFilter === "all"
-                                ? "border-[#0000E1]/30 bg-[#0000E1]/10 text-[#0000E1]"
-                                : "border-slate-200 bg-[#F0EFEC] text-slate-600"
-                            }`}
-                            onClick={() => setWizardQuickFilter("all")}
-                          >
-                            全部 ({wizardStreamCards.length})
-                          </button>
-                          <button
-                            className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
-                              wizardQuickFilter === "checked"
-                                ? "border-[#0000E1]/30 bg-[#0000E1]/10 text-[#0000E1]"
-                                : "border-slate-200 bg-[#F0EFEC] text-slate-600"
-                            }`}
-                            onClick={() => setWizardQuickFilter("checked")}
-                          >
-                            已开启 ({wizardCheckedStreamCount})
-                          </button>
+                          <Segmented
+                            size="small"
+                            value={wizardQuickFilter}
+                            onChange={setWizardQuickFilter}
+                            options={[
+                              { value: "all", label: `全部 (${wizardStreamCards.length})` },
+                              { value: "checked", label: `已开启 (${wizardCheckedStreamCount})` },
+                            ]}
+                          />
                         </div>
                       </div>
 
@@ -3928,21 +3880,7 @@ function App() {
                                   }`}
                                 >
                                   <div className="flex min-w-0 items-start gap-4">
-                                    <button
-                                      type="button"
-                                      role="switch"
-                                      aria-checked={checked}
-                                      aria-label={`Toggle ${stream.id}`}
-                                      onClick={() => toggleWizardLeaf(stream.id, !checked)}
-                                      className="relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full focus:outline-none focus:ring-2 focus:ring-[#4F46E5] focus:ring-offset-2"
-                                    >
-                                      <span className={`h-4 w-9 rounded-full transition-colors ${checked ? "bg-[#4F46E5]" : "bg-slate-200"}`} />
-                                      <span
-                                        className={`absolute left-0 inline-block h-5 w-5 transform rounded-full border border-slate-200 bg-[#F0EFEC] shadow transition-transform ${
-                                          checked ? "translate-x-4" : "translate-x-0"
-                                        }`}
-                                      />
-                                    </button>
+                                    <Switch checked={checked} onChange={(next) => toggleWizardLeaf(stream.id, next)} />
 
                                     <div className="min-w-0">
                                       <p className="text-sm font-semibold text-slate-800">
@@ -3956,14 +3894,16 @@ function App() {
                                   {checked ? (
                                     <div className="flex items-center gap-3">
                                       <span className="text-xs font-medium text-slate-400">同步模式:</span>
-                                      <select
-                                        className="h-8 cursor-pointer rounded border border-indigo-100 bg-indigo-50 pl-2 pr-7 text-xs font-medium text-indigo-700 outline-none focus:ring-2 focus:ring-[#4F46E5]/20"
+                                      <Select
+                                        size="small"
                                         value={mode}
-                                        onChange={(e) => setWizardLeafSyncMode((prev) => ({ ...prev, [stream.id]: e.target.value }))}
-                                      >
-                                        <option value="incremental">增量同步 (Incremental)</option>
-                                        <option value="full_refresh">全量覆盖 (Full Refresh)</option>
-                                      </select>
+                                        onChange={(value) => setWizardLeafSyncMode((prev) => ({ ...prev, [stream.id]: value }))}
+                                        options={[
+                                          { value: "incremental", label: "增量同步 (Incremental)" },
+                                          { value: "full_refresh", label: "全量覆盖 (Full Refresh)" },
+                                        ]}
+                                        style={{ width: 190 }}
+                                      />
                                     </div>
                                   ) : (
                                     <div className="text-xs text-slate-400">未开启</div>
@@ -3985,13 +3925,14 @@ function App() {
                             已选 <span className="font-semibold text-slate-700">{wizardSelectedAppIds.length}</span> 个授权账号，
                             已开启 <span className="font-semibold text-slate-700">{wizardCheckedStreamCount}</span> 个接口流。
                           </div>
-                          <button
-                            className="cxm-ok px-5 py-2 disabled:opacity-50"
+                          <Button
+                            type="primary"
                             onClick={handleSaveWorkspaceConfiguration}
-                            disabled={wizardWorkspaceSaveDisabled || wizardConnectionSaving}
+                            disabled={wizardWorkspaceSaveDisabled}
+                            loading={wizardConnectionSaving}
                           >
                             {wizardConnectionSaving ? "保存中..." : "保存项目"}
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     </div>
@@ -4499,181 +4440,56 @@ function App() {
                   </a>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button className="btn-ghost-brand" onClick={handleSyncCredentialSource}>
+                  <Button onClick={handleSyncCredentialSource}>
                     同步凭证 JSON
-                  </button>
-                  <button
-                    className="btn-brand"
-                    onClick={() => {
-                      openAppDrawer()
-                    }}
-                  >
+                  </Button>
+                  <Button type="primary" onClick={openAppDrawer}>
                     + 新建应用凭证
-                  </button>
+                  </Button>
                 </div>
               </div>
 
               <div className="mb-4 grid gap-2 sm:grid-cols-3">
-                <input className="input-base" placeholder="搜索应用名称" value={accountSearch} onChange={(e) => setAccountSearch(e.target.value)} />
-                <select className="input-base" value={accountPlatform} onChange={(e) => setAccountPlatform(e.target.value)}>
-                  <option value="all">全部平台</option>
-                  {sourcePlatforms.map((platform) => (
-                    <option key={platform} value={platform}>{platformMappingLabel(platform, platformLabelMap)}</option>
-                  ))}
-                </select>
-                <select className="input-base" value={accountStatus} onChange={(e) => setAccountStatus(e.target.value)}>
-                  <option value="all">全部状态</option>
-                  <option value="ready">凭证完整</option>
-                  <option value="partial">凭证缺失</option>
-                </select>
+                <Input
+                  allowClear
+                  placeholder="搜索应用名称"
+                  value={accountSearch}
+                  onChange={(e) => setAccountSearch(e.target.value)}
+                />
+                <Select
+                  value={accountPlatform}
+                  onChange={setAccountPlatform}
+                  options={[
+                    { value: "all", label: "全部平台" },
+                    ...sourcePlatforms.map((platform) => ({
+                      value: platform,
+                      label: platformMappingLabel(platform, platformLabelMap),
+                    })),
+                  ]}
+                />
+                <Select
+                  value={accountStatus}
+                  onChange={setAccountStatus}
+                  options={[
+                    { value: "all", label: "全部状态" },
+                    { value: "ready", label: "凭证完整" },
+                    { value: "partial", label: "凭证缺失" },
+                  ]}
+                />
               </div>
 
-              <table className="table-shell appauth-table min-w-[760px]">
-                <thead>
-                  <tr className="table-head-row">
-                    <th className="table-head-cell">
-                      <input
-                        type="checkbox"
-                        checked={allSourceRowsSelected}
-                        onChange={(e) => toggleSelectAllSourceRows(e.target.checked)}
-                      />
-                    </th>
-                    <th className="table-head-cell">序号</th>
-                    <th className="table-head-cell">名称</th>
-                    <th className="table-head-cell">App_ID</th>
-                    <th className="table-head-cell">平台</th>
-                    <th className="table-head-cell">状态</th>
-                    <th className="table-head-cell">Token 状态</th>
-                    <th className="table-head-cell">更新时间</th>
-                    <th className="table-head-cell">access_token</th>
-                    <th className="table-head-cell">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sourceAccounts.map((item) => (
-                    <tr key={item.source_path}>
-                      <td className="table-cell">
-                        <input
-                          type="checkbox"
-                          disabled={!item.app_id || isRowTokenRefreshing(item.app_id)}
-                          checked={item.app_id ? selectedSourceAppIds.includes(String(item.app_id)) : false}
-                          onChange={(e) => toggleSelectSourceRow(String(item.app_id || ""), e.target.checked)}
-                        />
-                      </td>
-                      <td className="table-cell">{item.row_no}</td>
-                      <td className="table-cell">{item.name}</td>
-                      <td className="table-cell mono-ui">{item.app_id || "-"}</td>
-                      <td className="table-cell">{platformMappingLabel(item.platform, platformLabelMap)}</td>
-                      <td className="table-cell"><span className={statusClass(item.status)}>{item.status}</span></td>
-                      <td className="table-cell">
-                        <span className={statusClass(item.token_status || (item.has_access_token ? "ready" : "missing"))}>
-                          {item.token_status || (item.has_access_token ? "ready" : "missing")}
-                        </span>
-                      </td>
-                      <td className="table-cell mono-ui">{formatTimeText(item.token_updated_at)}</td>
-                      <td className="table-cell mono-ui">{item.access_token || "-"}</td>
-                      <td className="table-cell">
-                        <div className="relative action-cell-group">
-                          <button
-                            className="action-btn edit-btn"
-                            disabled={isRowTokenRefreshing(item.app_id)}
-                            onClick={() => openEditCredentialDialog(item)}
-                          >
-                            编辑
-                          </button>
-                          <button
-                            className="action-btn token-btn"
-                            disabled={!item.app_id || isRowTokenRefreshing(item.app_id)}
-                            onClick={() => openTokenConfirm(item)}
-                          >
-                            <span className={isRowTokenRefreshing(item.app_id) ? "sync-icon spinning" : "sync-icon"}>↻</span>
-                            {isRowTokenRefreshing(item.app_id) ? "更新中..." : "更新 Token"}
-                          </button>
-                          <button
-                            className="action-btn text-[#0000E1]"
-                            disabled={!item.app_id || isRowTokenRefreshing(item.app_id)}
-                            onClick={() => openStreamDrawerForAccount(item)}
-                          >
-                            配置接口
-                          </button>
-                          <button
-                            className="action-btn more-btn dropdown-trigger"
-                            disabled={isRowTokenRefreshing(item.app_id)}
-                            onClick={() => {
-                              setMoreMenuAppId((prev) =>
-                                prev === String(item.app_id || item.source_path) ? "" : String(item.app_id || item.source_path)
-                              )
-                            }}
-                          >
-                            更多 ▼
-                          </button>
-
-                          {moreMenuAppId === String(item.app_id || item.source_path) && (
-                            <div className="more-action-menu">
-                              <button
-                                className="more-action-item"
-                                onClick={() => {
-                                  setDetailText(JSON.stringify(item, null, 2))
-                                  setMoreMenuAppId("")
-                                }}
-                              >
-                                查看
-                              </button>
-                              <button className="more-action-item text-rose-500" onClick={() => handleDeleteSingleCredential(item)}>
-                                删除
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="appauth-pagination mt-4 flex flex-wrap items-center justify-center gap-3 text-xs text-slate-500">
-                <span>共 {sourceTotal} 条，每页 {sourcePageSize} 条</span>
-                <div className="flex items-center gap-2">
-                  <button
-                    className="btn-subtle px-2 py-1 text-xs disabled:opacity-50"
-                    type="button"
-                    disabled={sourcePage <= 1}
-                    onClick={() => loadCredentialSource(sourcePage - 1).catch((err) => showToast(err.message))}
-                  >
-                    上一页
-                  </button>
-                  <span className="mono-ui">第 {sourcePage} / {sourceTotalPages} 页</span>
-                  <input
-                    className="input-base w-20 px-2 py-1 text-xs"
-                    value={sourceJumpPage}
-                    onChange={(e) => setSourceJumpPage(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleJumpPage()
-                    }}
-                    placeholder="页码"
-                  />
-                  <button
-                    className="btn-subtle px-2 py-1 text-xs"
-                    type="button"
-                    onClick={handleJumpPage}
-                  >
-                    跳转
-                  </button>
-                  <button
-                    className="btn-subtle px-2 py-1 text-xs disabled:opacity-50"
-                    type="button"
-                    disabled={sourcePage >= sourceTotalPages}
-                    onClick={() => loadCredentialSource(sourcePage + 1).catch((err) => showToast(err.message))}
-                  >
-                    下一页
-                  </button>
-                </div>
-              </div>
+              <Table
+                rowKey={(item) => String(item.app_id || item.source_path || item.row_no)}
+                dataSource={sourceAccounts}
+                columns={credentialColumns}
+                rowSelection={credentialRowSelection}
+                pagination={credentialPagination}
+                size="middle"
+              />
             </article>
 
             <CreateCredentialDrawerModal
-              portalRoot={portalRoot}
               open={appDrawerOpen}
-              visible={appDrawerVisible}
               form={accountForm}
               availablePlatformConfigs={availablePlatformConfigs}
               currentPlatformSchema={currentPlatformSchema}
@@ -4684,7 +4500,6 @@ function App() {
             />
 
             <CredentialEditModal
-              portalRoot={portalRoot}
               dialog={editDialog}
               loading={editLoading}
               saving={editSaving}
@@ -4696,7 +4511,6 @@ function App() {
             />
 
             <WhitelistModal
-              portalRoot={portalRoot}
               dialog={whitelistDialog}
               value={whitelistValue}
               saving={whitelistSaving}
@@ -4705,90 +4519,67 @@ function App() {
               onSave={handleSaveWhitelist}
             />
 
-            {streamDrawerOpen && portalRoot && createPortal(
-              <div className="fixed inset-0 z-[70] grid place-items-center bg-black/40 p-4 backdrop-blur-sm" onClick={closeStreamDrawer}>
-                <article
-                  className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/80 px-6 py-4">
-                    <div>
-                      <h3 className="text-lg font-bold text-slate-800">
-                        配置同步接口
-                        <span className="ml-2 text-sm font-normal text-slate-500">/ {currentConfigAccount?.name || "-"}</span>
-                      </h3>
-                      <p className="mt-1 text-xs text-slate-500">开启接口后，系统将按调度策略自动拉取并入库。</p>
-                    </div>
-                    <button className="p-1 text-slate-400 hover:text-slate-600" onClick={closeStreamDrawer}>×</button>
-                  </div>
-
-                  <div className="flex-1 overflow-y-auto bg-white p-2">
-                    {streamDrawerLoading ? (
-                      <div className="py-12 text-center text-sm text-slate-500">加载中...</div>
-                    ) : (
-                      <div className="divide-y divide-slate-50">
-                        {currentSupportedStreams.map((stream) => {
-                          const isEnabled = !!activeStreams[stream.key]
-                          return (
-                            <div
-                              key={stream.key}
-                              className={`m-2 flex items-center justify-between rounded-lg border p-4 transition-all ${
-                                isEnabled ? "border-indigo-100/50 bg-indigo-50/30" : "border-transparent hover:bg-slate-50"
-                              }`}
-                            >
-                              <div className="flex items-start gap-4">
-                                <button
-                                  className="relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[#0000E1] focus:ring-offset-1"
-                                  style={{ backgroundColor: isEnabled ? "#0000E1" : "#e2e8f0" }}
-                                  onClick={() => setActiveStreams((prev) => ({ ...prev, [stream.key]: !isEnabled }))}
-                                >
-                                  <span className={`absolute left-0 inline-block h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform duration-200 ${isEnabled ? "translate-x-[16px]" : "translate-x-[2px]"}`} />
-                                </button>
-                                <div className="flex flex-col">
-                                  <span className={`text-sm font-semibold transition-colors ${isEnabled ? "text-indigo-900" : "text-slate-700"}`}>
-                                    {stream.label}
-                                    <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-normal text-slate-400">
-                                      {stream.key}
-                                    </span>
-                                  </span>
-                                  <span className="mt-1 max-w-md text-xs leading-relaxed text-slate-500">{stream.desc}</span>
-                                </div>
-                              </div>
-                              {isEnabled && (
-                                <span className="flex items-center gap-1.5 rounded border border-indigo-100 bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-600">
-                                  <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
-                                  已启用
-                                </span>
-                              )}
+            <Modal
+              open={streamDrawerOpen}
+              onCancel={closeStreamDrawer}
+              title={`配置同步接口 / ${currentConfigAccount?.name || "-"}`}
+              width={920}
+              destroyOnHidden
+              footer={
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-500">
+                    已选择 <strong className="text-indigo-600">{Object.values(activeStreams).filter(Boolean).length}</strong> 个接口
+                  </span>
+                  <Space>
+                    <Button onClick={closeStreamDrawer}>取消</Button>
+                    <Button
+                      type="primary"
+                      loading={streamSaving}
+                      disabled={streamDrawerLoading}
+                      onClick={handleSaveAccountStreams}
+                    >
+                      保存接口配置
+                    </Button>
+                  </Space>
+                </div>
+              }
+            >
+              <p className="mt-0 text-xs text-slate-500">开启接口后，系统将按调度策略自动拉取并入库。</p>
+              <div className="max-h-[62vh] overflow-y-auto rounded-lg border border-slate-100 p-2">
+                {streamDrawerLoading ? (
+                  <div className="py-12 text-center text-sm text-slate-500">加载中...</div>
+                ) : (
+                  <div className="divide-y divide-slate-50">
+                    {currentSupportedStreams.map((stream) => {
+                      const isEnabled = !!activeStreams[stream.key]
+                      return (
+                        <div
+                          key={stream.key}
+                          className={`m-2 flex items-center justify-between rounded-lg border p-4 ${
+                            isEnabled ? "border-indigo-100/50 bg-indigo-50/30" : "border-transparent hover:bg-slate-50"
+                          }`}
+                        >
+                          <div className="flex items-start gap-4">
+                            <Switch checked={isEnabled} onChange={() => setActiveStreams((prev) => ({ ...prev, [stream.key]: !isEnabled }))} />
+                            <div className="flex flex-col">
+                              <span className={`text-sm font-semibold ${isEnabled ? "text-indigo-900" : "text-slate-700"}`}>
+                                {stream.label}
+                                <Tag className="ml-2">{stream.key}</Tag>
+                              </span>
+                              <span className="mt-1 max-w-md text-xs leading-relaxed text-slate-500">{stream.desc}</span>
                             </div>
-                          )
-                        })}
-                        {currentSupportedStreams.length === 0 && (
-                          <div className="py-12 text-center text-sm text-slate-400">该平台暂无预置接口。</div>
-                        )}
-                      </div>
-                    )}
+                          </div>
+                          {isEnabled ? <Tag color="processing">已启用</Tag> : null}
+                        </div>
+                      )
+                    })}
+                    {currentSupportedStreams.length === 0 ? (
+                      <div className="py-12 text-center text-sm text-slate-400">该平台暂无预置接口。</div>
+                    ) : null}
                   </div>
-
-                  <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50 px-6 py-4">
-                    <span className="text-xs text-slate-500">
-                      已选择 <strong className="text-indigo-600">{Object.values(activeStreams).filter(Boolean).length}</strong> 个接口
-                    </span>
-                    <div className="flex gap-3">
-                      <button className="btn-subtle" onClick={closeStreamDrawer}>取消</button>
-                      <button
-                        className="btn-brand"
-                        disabled={streamSaving || streamDrawerLoading}
-                        onClick={handleSaveAccountStreams}
-                      >
-                        {streamSaving ? "保存中..." : "保存接口配置"}
-                      </button>
-                    </div>
-                  </div>
-                </article>
-              </div>,
-              portalRoot
-            )}
+                )}
+              </div>
+            </Modal>
 
               </>
             )}
