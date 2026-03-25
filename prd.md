@@ -353,3 +353,81 @@
 - 影响与回滚：
   - 仅前端展示层变化，无接口/数据结构变更。
   - 回滚可移除映射函数并恢复直接展示 `stream.sync_mode`。
+
+### [2026-03-25 23:22] Connection Detail 视觉风格对齐 Connection
+- 背景：Connection Detail 页面信息结构可用，但视觉语言与 Connection 列表页存在差异（头部层级、状态展示、表格行样式、操作按钮风格不一致）。
+- 改动文件：
+  - /Users/xuminchen/Desktop/WonderLab工作文件/Project/wonderlab_api/frontend/src/App.jsx
+  - /Users/xuminchen/Desktop/WonderLab工作文件/Project/wonderlab_api/prd.md
+- 改动摘要：
+  - 将 Detail 页头部改为与 Connection 同款层级（大标题 + 胶囊状态信息）。
+  - 详情信息卡改为与列表同风格：Source/Destination 图标样式、统一底色与边框。
+  - Stream 列表改为与 Connection 同款表格皮肤：表头、行 hover、单元格间距、操作按钮文本风格统一。
+  - 保留原有功能与数据字段，仅做视觉与交互风格对齐。
+- 原因：统一页面视觉语言，降低用户在“列表 -> 详情”切换时的认知跳变。
+- 验证：
+  - `npm run build` 通过。
+  - 浏览器端访问 `Connection Detail` 无渲染报错，样式结构按预期加载。
+- 影响与回滚：
+  - 仅影响 Connection Detail 前端展示层，无后端接口/数据结构变更。
+  - 回滚可恢复 `frontend/src/App.jsx` 中 Detail 分支 JSX 为原实现。
+
+### [2026-03-25 23:24] Connection Detail Stream 列表新增序号列
+- 背景：Connection Detail 的 stream 列表在多条记录时不便于定位与沟通，需要可视化序号。
+- 改动文件：
+  - /Users/xuminchen/Desktop/WonderLab工作文件/Project/wonderlab_api/frontend/src/App.jsx
+  - /Users/xuminchen/Desktop/WonderLab工作文件/Project/wonderlab_api/prd.md
+- 改动摘要：
+  - 在 Connection Detail 的 stream 表格新增首列“序号”。
+  - 序号按当前展示顺序从 1 开始（`index + 1`）。
+  - 空态行 `colSpan` 从 5 调整为 6，确保表格结构一致。
+- 原因：提高表格可读性与沟通效率（定位第 N 条 stream 更直接）。
+- 验证：
+  - `npm run build` 通过。
+  - 页面刷新后，Connection Detail 列表可见“序号”列并正常递增。
+- 影响与回滚：
+  - 仅前端展示层变化，无接口/数据结构变更。
+  - 回滚可移除该列及对应 `index` 渲染逻辑，恢复原 5 列布局。
+
+### [2026-03-26 00:42] 前端组件化第二轮：Connection/Credentials 的 Drawer/Modal/Form 全量 Antd 化
+- 背景：第一轮已完成列表区表格组件化，但弹层与表单仍有较多自定义实现，不满足“尽可能用组件、减少外部定义”的目标。
+- 改动文件：
+  - /Users/xuminchen/Desktop/WonderLab工作文件/Project/wonderlab_api/frontend/src/App.jsx
+  - /Users/xuminchen/Desktop/WonderLab工作文件/Project/wonderlab_api/frontend/src/components/ConfirmModal.jsx
+  - /Users/xuminchen/Desktop/WonderLab工作文件/Project/wonderlab_api/frontend/src/components/modals/ConnectionWizardModal.jsx
+  - /Users/xuminchen/Desktop/WonderLab工作文件/Project/wonderlab_api/frontend/src/components/modals/CreateCredentialDrawerModal.jsx
+  - /Users/xuminchen/Desktop/WonderLab工作文件/Project/wonderlab_api/frontend/src/components/modals/CredentialEditModal.jsx
+  - /Users/xuminchen/Desktop/WonderLab工作文件/Project/wonderlab_api/frontend/src/components/modals/WhitelistModal.jsx
+  - /Users/xuminchen/Desktop/WonderLab工作文件/Project/wonderlab_api/frontend/src/main.jsx
+  - /Users/xuminchen/Desktop/WonderLab工作文件/Project/wonderlab_api/frontend/package.json
+  - /Users/xuminchen/Desktop/WonderLab工作文件/Project/wonderlab_api/frontend/package-lock.json
+- 改动摘要：
+  - `ConfirmModal` 改为 Antd `Modal`，危险确认使用 `danger` 风格按钮。
+  - `ConnectionWizardModal` 改为 Antd `Drawer`，统一头部与关闭动作。
+  - 新建凭证、编辑凭证、白名单弹层改为 Antd `Drawer/Modal + Input/Select/Switch/TextArea/Button`。
+  - `App.jsx` 中 Connection 向导与“配置同步接口”弹层内联控件替换为 Antd 组件（`Input/Select/Checkbox/Switch/Segmented/Modal`）。
+  - 保留既有业务函数与数据流，主要替换视图层实现。
+- 原因：进一步提高复用性与一致性，降低自定义样式维护成本，减少 Tailwind + 手写类混用导致的复杂度。
+- 验证：
+  - `npm run lint` 通过。
+  - `npm run build` 通过。
+  - 本地页面验证：Connection/Credentials 核心弹层可打开、可提交、无前端崩溃。
+- 影响与回滚：
+  - 影响 Connection/Credentials 的交互组件实现与样式外观（功能语义保持一致）。
+  - 回滚可按上述文件粒度回退，恢复第一轮改造后的实现。
+
+### [2026-03-26 00:42] 样式收口：移除废弃 action/more-action/connection-table 类
+- 背景：第二轮组件化后，`index.css` 中部分样式块已无引用，继续保留会增加噪音与误导。
+- 改动文件：
+  - /Users/xuminchen/Desktop/WonderLab工作文件/Project/wonderlab_api/frontend/src/index.css
+- 改动摘要：
+  - 删除已无引用的类：`action-cell-group`、`action-btn*`、`more-action-menu*`、`more-action-item*`、`connection-action`、`appauth-table*`、`connection-table*`。
+  - 删除对应废弃动画：`token-refresh-spin`、`connection-status-pulse`。
+  - 保留仍在使用的 `table-*` 基础样式（用于其他模块表格）。
+- 原因：收口样式资产，避免无效样式持续累积，降低后续改造成本。
+- 验证：
+  - 全项目检索已确认上述类在 `frontend/src` 中无 JS/JSX 引用。
+  - `npm run lint`、`npm run build` 均通过。
+- 影响与回滚：
+  - 仅影响前端样式资源体积与可维护性，不改变后端接口行为。
+  - 回滚可恢复 `frontend/src/index.css` 的对应块定义。
