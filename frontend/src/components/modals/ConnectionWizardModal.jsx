@@ -19,10 +19,10 @@ function ConnectionWizardModal({
         <div className="shrink-0 border-b border-slate-100 px-6 py-4">
           <div>
             <h3 className="m-0 text-lg font-semibold text-slate-900">
-              {mode === "setup" ? "新建 Connection Project" : "管理接口任务工作区"}
+              {mode === "setup" ? "新建 Connection Project" : "编辑 Connection Project"}
             </h3>
             <p className="mt-1 text-xs text-slate-500">
-              {mode === "setup" ? "先完成项目级配置与连接测试，再保存。" : "在此对选中项目进行接口发现与字段策略调整。"}
+              {mode === "setup" ? "先完成项目级配置与连接测试，再保存。" : "在此编辑授权账号并管理接口任务配置。"}
             </p>
           </div>
           <button className="mt-2 rounded-md px-2 py-1 text-xs text-slate-500 transition hover:bg-[#E7E6E2] hover:text-slate-700" onClick={onClose}>关闭</button>

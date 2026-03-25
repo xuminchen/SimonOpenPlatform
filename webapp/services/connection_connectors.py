@@ -2,11 +2,19 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import inspect
+import json
+import random
 import re
 import time
 from dataclasses import dataclass
 from typing import Any, Protocol
+from urllib.parse import urljoin
 
+import requests
+
+from webapp.db import SessionLocal
+from webapp.json_helpers import safe_json_dict, safe_json_list
+from webapp.models import PlatformApiStream
 from webapp.services.red_juguang_api import RedJuGuangApiClient
 
 
@@ -49,7 +57,295 @@ class StaticSourceConnector:
 
 @dataclass
 class GenericSourceConnector(StaticSourceConnector):
-    pass
+    def _list_platform_stream_rows(self) -> list[PlatformApiStream]:
+        if SessionLocal is None:
+            return []
+        db = SessionLocal()
+        try:
+            rows = (
+                db.query(PlatformApiStream)
+                .filter(
+                    PlatformApiStream.platform_code == self.platform_code,
+                    PlatformApiStream.status == "published",
+                )
+                .order_by(PlatformApiStream.updated_at.desc(), PlatformApiStream.id.desc())
+                .all()
+            )
+            return [item for item in rows if isinstance(item, PlatformApiStream)]
+        finally:
+            db.close()
+
+    def _find_stream_row(self, stream_name: str) -> PlatformApiStream | None:
+        target = str(stream_name or "").strip()
+        if not target or SessionLocal is None:
+            return None
+        db = SessionLocal()
+        try:
+            row = (
+                db.query(PlatformApiStream)
+                .filter(
+                    PlatformApiStream.platform_code == self.platform_code,
+                    PlatformApiStream.stream_name == target,
+                    PlatformApiStream.status == "published",
+                )
+                .order_by(PlatformApiStream.updated_at.desc(), PlatformApiStream.id.desc())
+                .first()
+            )
+            return row if isinstance(row, PlatformApiStream) else None
+        finally:
+            db.close()
+
+    @staticmethod
+    def _jsonpath_select(payload: Any, json_path: str) -> Any:
+        expr = str(json_path or "").strip()
+        if not expr or expr == "$":
+            return payload
+        if expr.startswith("$."):
+            expr = expr[2:]
+        segments = [x for x in expr.split(".") if x]
+
+        current: Any = payload
+        for seg in segments:
+            if isinstance(current, list):
+                if seg == "*":
+                    continue
+                if seg.isdigit():
+                    idx = int(seg)
+                    if idx < 0 or idx >= len(current):
+                        return []
+                    current = current[idx]
+                    continue
+                return []
+            if not isinstance(current, dict):
+                return []
+            if seg not in current:
+                return []
+            current = current.get(seg)
+        return current
+
+    @staticmethod
+    def _inject_auth(
+        *,
+        headers: dict[str, Any],
+        query_params: dict[str, Any],
+        body: dict[str, Any],
+        auth_strategy: dict[str, Any],
+        test_vars: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        auth_type = str(auth_strategy.get("type") or "None").strip().lower()
+        if auth_type in {"none", ""}:
+            return headers, query_params, body
+
+        inject_into = str(auth_strategy.get("inject_into") or "header").strip().lower()
+        key_name = str(auth_strategy.get("key_name") or "").strip() or "Authorization"
+        test_key = str(auth_strategy.get("test_variable") or "token").strip() or "token"
+        token = str(
+            test_vars.get(test_key)
+            or test_vars.get("token")
+            or test_vars.get("access_token")
+            or test_vars.get("advertiser_access_token")
+            or ""
+        ).strip()
+        if not token:
+            return headers, query_params, body
+
+        value = token
+        if auth_type in {"bearer token", "bearertoken", "oauth2.0", "oauth2"} and key_name.lower() == "authorization":
+            value = token if token.lower().startswith("bearer ") else "Bearer {0}".format(token)
+
+        if inject_into == "query":
+            query_params[key_name] = value
+        elif inject_into == "body":
+            body[key_name] = value
+        else:
+            headers[key_name] = value
+        return headers, query_params, body
+
+    @staticmethod
+    def _request_with_retry(
+        *,
+        method: str,
+        url: str,
+        headers: dict[str, Any],
+        query_params: dict[str, Any],
+        body: dict[str, Any],
+        max_retry: int = 4,
+    ) -> dict[str, Any]:
+        retryable_status = {429, 500, 502, 504}
+        fatal_status = {401, 403, 404}
+        method_value = str(method or "GET").strip().upper()
+
+        last_error = "request failed"
+        for attempt in range(1, max_retry + 1):
+            try:
+                response = requests.request(
+                    method=method_value,
+                    url=url,
+                    headers=headers,
+                    params=query_params,
+                    json=body if method_value in {"POST", "PUT", "PATCH"} else None,
+                    timeout=(10, 60),
+                )
+                if response.status_code in fatal_status:
+                    raise RuntimeError("fatal upstream status: {0}".format(response.status_code))
+                if response.status_code in retryable_status:
+                    if response.status_code == 429:
+                        retry_after = response.headers.get("Retry-After")
+                        sleep_seconds = float(retry_after) if (retry_after and str(retry_after).isdigit()) else 1.5
+                    else:
+                        sleep_seconds = min(10.0, (2 ** (attempt - 1)) * 0.8 + random.uniform(0, 0.4))
+                    if attempt >= max_retry:
+                        response.raise_for_status()
+                    time.sleep(sleep_seconds)
+                    continue
+                response.raise_for_status()
+                payload = response.json()
+                if not isinstance(payload, dict):
+                    return {"data": payload}
+                return payload
+            except Exception as exc:
+                last_error = str(exc)
+                if attempt >= max_retry:
+                    break
+                sleep_seconds = min(10.0, (2 ** (attempt - 1)) * 0.8 + random.uniform(0, 0.4))
+                time.sleep(sleep_seconds)
+        raise RuntimeError("upstream request failed: {0}".format(last_error))
+
+    @staticmethod
+    def _credential_test_variables(credential: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
+        vars_payload: dict[str, Any] = {}
+        if isinstance(credential, dict):
+            vars_payload.update(credential)
+            token = credential.get("token")
+            if isinstance(token, dict):
+                vars_payload.update(token)
+        state_vars = state.get("test_variables")
+        if isinstance(state_vars, dict):
+            vars_payload.update(state_vars)
+        return vars_payload
+
+    @staticmethod
+    def _extract_records(raw: dict[str, Any], selector: str) -> list[dict[str, Any]]:
+        extracted = GenericSourceConnector._jsonpath_select(raw, selector)
+        if isinstance(extracted, dict):
+            return [extracted]
+        if isinstance(extracted, list):
+            return [x for x in extracted if isinstance(x, dict)]
+        return []
+
+    def _pull_published_stream(self, row: PlatformApiStream, credential: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
+        request_cfg = safe_json_dict(row.request_config_json)
+        auth_cfg = safe_json_dict(row.auth_strategy_json)
+        extraction_cfg = safe_json_dict(row.extraction_strategy_json)
+        pagination_cfg = safe_json_dict(row.pagination_strategy_json)
+
+        method = str(request_cfg.get("method") or "GET").strip().upper()
+        base = str(request_cfg.get("url_base") or "").strip()
+        path = str(request_cfg.get("url_path") or "").strip()
+        if not base:
+            raise ValueError("published stream request_config.url_base is empty")
+        url = urljoin(base.rstrip("/") + "/", path.lstrip("/")) if path else base
+
+        headers = dict(request_cfg.get("headers") or {})
+        query_params = dict(request_cfg.get("query_params") or {})
+        body = dict(request_cfg.get("body") or {})
+        headers, query_params, body = self._inject_auth(
+            headers=headers,
+            query_params=query_params,
+            body=body,
+            auth_strategy=auth_cfg,
+            test_vars=self._credential_test_variables(credential, state),
+        )
+
+        # Runtime supports lightweight cursor/page injection.
+        cursor = str(state.get("cursor_value") or "").strip()
+        pagination_type = str(pagination_cfg.get("type") or "").strip().lower()
+        inject_param = str(pagination_cfg.get("inject_param") or "").strip()
+        if cursor and pagination_type in {"cursor", "offset"} and inject_param:
+            query_params[inject_param] = cursor
+
+        limit_value = int(state.get("limit") or state.get("page_size") or 100)
+        limit_value = max(1, min(limit_value, 500))
+        if "limit" not in query_params and "limit" not in body:
+            query_params["limit"] = limit_value
+        if "page_size" not in query_params and "page_size" not in body:
+            query_params["page_size"] = limit_value
+
+        raw_response = self._request_with_retry(
+            method=method,
+            url=url,
+            headers=headers,
+            query_params=query_params,
+            body=body,
+        )
+        selector = str(extraction_cfg.get("record_selector") or "$.data.list").strip() or "$.data.list"
+        records = self._extract_records(raw_response, selector)
+
+        cursor_field = str(state.get("cursor_field") or "").strip()
+        next_cursor = str(state.get("end_time") or state.get("cursor_value") or "").strip()
+        if cursor_field and records:
+            candidates = [str(item.get(cursor_field, "")).strip() for item in records if item.get(cursor_field) not in (None, "")]
+            if candidates:
+                next_cursor = max(candidates)
+
+        return {
+            "records": records,
+            "next_state": {"cursor": next_cursor},
+            "raw_response": raw_response,
+            "request_preview": {
+                "url": url,
+                "method": method,
+                "headers": headers,
+                "query_params": query_params,
+                "body": body if method in {"POST", "PUT", "PATCH"} else {},
+            },
+            "stream_runtime": {
+                "platform_code": row.platform_code,
+                "stream_name": row.stream_name,
+                "supported_sync_modes": [str(x) for x in safe_json_list(row.supported_sync_modes_json)],
+            },
+        }
+
+    def discover_schema(self) -> list[dict[str, Any]]:
+        rows = self._list_platform_stream_rows()
+        if not rows:
+            return super().discover_schema()
+
+        discovered: list[dict[str, Any]] = []
+        for row in rows:
+            modes = [str(x).upper() for x in safe_json_list(row.supported_sync_modes_json)]
+            if not modes:
+                modes = ["FULL_REFRESH", "INCREMENTAL"]
+            discovered.append(
+                {
+                    "stream_name": str(row.stream_name),
+                    "description": str(row.display_name or row.stream_name),
+                    "supported_sync_modes": modes,
+                    "default_cursor_field": ["updated_at"],
+                    "schema": {
+                        "fields": [
+                            {"name": "id", "type": "STRING", "primary_key": True},
+                            {"name": "updated_at", "type": "TIMESTAMP", "cursor_candidate": True},
+                        ]
+                    },
+                }
+            )
+
+        # keep fallback static rows for newly registered platform with no builder stream selected.
+        fallback_rows = super().discover_schema()
+        fallback_names = {str(item.get("stream_name", "")).strip() for item in discovered}
+        for item in fallback_rows:
+            name = str(item.get("stream_name", "")).strip()
+            if name and name not in fallback_names:
+                discovered.append(item)
+        return discovered
+
+    def pull_data(self, stream_name: str, credential: dict[str, Any], state: dict[str, Any] | None = None) -> dict[str, Any]:
+        runtime_state = state if isinstance(state, dict) else {}
+        row = self._find_stream_row(stream_name)
+        if row is not None:
+            return self._pull_published_stream(row, credential, runtime_state)
+        return super().pull_data(stream_name, credential, state=runtime_state)
 
 
 @dataclass

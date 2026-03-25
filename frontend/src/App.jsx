@@ -261,6 +261,13 @@ function platformMappingLabel(platform, platformLabelMap = {}) {
   return platformLabelMap[key] || platform || "-"
 }
 
+function syncModeLabel(mode) {
+  const key = String(mode || "").trim().toLowerCase()
+  if (key === "incremental") return "增量同步"
+  if (key === "full_refresh") return "全量覆盖"
+  return String(mode || "-")
+}
+
 function isCursorType(type) {
   const key = String(type || "").trim().toUpperCase()
   return ["TIMESTAMP", "DATE", "DATETIME", "INTEGER", "BIGINT", "INT", "NUMBER"].includes(key)
@@ -761,8 +768,9 @@ function App() {
   }
 
   async function handleSaveWorkspaceConfiguration() {
-    if (wizardCheckedLeafIds.length === 0) {
-      showToast("至少勾选 1 个接口流后才能保存")
+    const appIds = wizardSelectedAppIds.map((x) => String(x || "").trim()).filter(Boolean)
+    if (appIds.length === 0) {
+      showToast("至少选择 1 个授权账号后才能保存")
       return
     }
 
@@ -773,6 +781,7 @@ function App() {
 
     const snapshot = {
       project_id: Number(wizardProjectId) || null,
+      app_ids: appIds,
       configured_streams: configuredStreams,
     }
     setWizardConnectionSaving(true)
@@ -781,16 +790,32 @@ function App() {
       if (!Number.isFinite(projectId) || projectId <= 0) {
         throw new Error("缺少 project_id，请先保存项目基础信息")
       }
-      await apiFetch(`/api/v1/connections/projects/${projectId}/streams`, {
-        method: "POST",
+
+      await apiFetch(`/api/v1/connections/projects/${projectId}/app-ids`, {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          streams: configuredStreams,
+          app_ids: appIds,
         }),
       })
+
+      if (configuredStreams.length > 0) {
+        await apiFetch(`/api/v1/connections/projects/${projectId}/streams`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            streams: configuredStreams,
+          }),
+        })
+      }
+
       setDetailText(JSON.stringify(snapshot, null, 2))
       await loadConnections()
-      showToast("项目接口配置已保存")
+      if (configuredStreams.length > 0) {
+        showToast(`项目已保存：${appIds.length} 个授权账号，${configuredStreams.length} 个接口流`)
+      } else {
+        showToast(`项目授权账号已保存：${appIds.length} 个`)
+      }
     } catch (err) {
       showToast(`保存失败: ${err.message}`)
     } finally {
@@ -974,7 +999,7 @@ function App() {
     return wizardStreamCards
   }, [wizardCheckedLeafIds, wizardQuickFilter, wizardStreamCards])
   const wizardCheckedStreamCount = wizardCheckedLeafIds.length
-  const wizardWorkspaceSaveDisabled = wizardCheckedLeafIds.length === 0
+  const wizardWorkspaceSaveDisabled = wizardSelectedAppIds.length === 0
   const destinationCatalogGroups = useMemo(() => {
     return connections.map((conn) => {
       const schemaGroups = CONNECTION_SCHEMA_PRESETS[conn.platform_code] || []
@@ -2581,24 +2606,36 @@ function App() {
           })
 
           const okItems = Array.isArray(data.items) ? data.items.filter((x) => x && x.ok && x.result) : []
-          if (okItems.length > 0) {
-            const byAppId = {}
-            okItems.forEach((item) => {
-              byAppId[String(item.app_id)] = item.result
-            })
+          const failedItems = Array.isArray(data.items) ? data.items.filter((x) => x && !x.ok) : []
+          const byAppId = {}
+          okItems.forEach((item) => {
+            byAppId[String(item.app_id)] = item.result
+          })
+          const failedAppIds = new Set(failedItems.map((item) => String(item.app_id || "").trim()).filter(Boolean))
+          const failedAt = new Date().toISOString()
+          if (okItems.length > 0 || failedAppIds.size > 0) {
             setSourceAccounts((prev) =>
               prev.map((row) => {
                 const appId = String(row.app_id || "")
                 const hit = byAppId[appId]
-                if (!hit) return row
-                return {
-                  ...row,
-                  has_access_token: !!hit.has_access_token,
-                  access_token: hit.access_token || row.access_token || null,
-                  refresh_token: hit.refresh_token || row.refresh_token || null,
-                  token_status: hit.token_status || (hit.has_access_token ? "ready" : "missing"),
-                  token_updated_at: hit.token_updated_at || row.token_updated_at,
+                if (hit) {
+                  return {
+                    ...row,
+                    has_access_token: !!hit.has_access_token,
+                    access_token: hit.access_token || row.access_token || null,
+                    refresh_token: hit.refresh_token || row.refresh_token || null,
+                    token_status: hit.token_status || (hit.has_access_token ? "ready" : "missing"),
+                    token_updated_at: hit.token_updated_at || row.token_updated_at,
+                  }
                 }
+                if (failedAppIds.has(appId)) {
+                  return {
+                    ...row,
+                    token_status: "refresh_failed",
+                    token_updated_at: failedAt,
+                  }
+                }
+                return row
               })
             )
           }
@@ -2671,6 +2708,18 @@ function App() {
       )
       showToast("Token 更新成功")
     } catch (err) {
+      const failedAt = new Date().toISOString()
+      setSourceAccounts((prev) =>
+        prev.map((row) =>
+          String(row.app_id || "") === appId
+            ? {
+                ...row,
+                token_status: "refresh_failed",
+                token_updated_at: failedAt,
+              }
+            : row
+        )
+      )
       showToast(err.message || "更新失败：网络超时，请重试")
     } finally {
       setTokenRefreshingByAppId((prev) => ({ ...prev, [appId]: false }))
@@ -3191,7 +3240,7 @@ function App() {
                           {connectionDetailStreams.map((stream) => (
                             <tr key={stream.id}>
                               <td className="table-cell text-center mono-ui">{stream.stream_name}</td>
-                              <td className="table-cell text-center mono-ui">{stream.sync_mode || "-"}</td>
+                              <td className="table-cell text-center mono-ui">{syncModeLabel(stream.sync_mode)}</td>
                               <td className="table-cell text-center mono-ui">{stream.cursor_field || "-"}</td>
                               <td className="table-cell text-center mono-ui">
                                 {formatTimeText(stream.last_routine_finished_at)}
@@ -3748,8 +3797,72 @@ function App() {
                         <div className="text-sm leading-relaxed text-indigo-900">
                           <strong className="mb-0.5 block font-semibold">项目级全局配置</strong>
                           当前配置的接口规则将统一应用于该项目下的
-                          <span className="mx-1 rounded border border-indigo-200 bg-[#F0EFEC] px-1.5 py-0.5 font-semibold shadow-sm">{Math.max(1, wizardSelectedAppIds.length)}</span>
+                          <span className="mx-1 rounded border border-indigo-200 bg-[#F0EFEC] px-1.5 py-0.5 font-semibold shadow-sm">{wizardSelectedAppIds.length}</span>
                           个授权账号，底层引擎会自动扇出并发执行。
+                        </div>
+                      </div>
+
+                      <div className="mb-4 rounded-xl border border-slate-200 bg-[#F0EFEC] p-3">
+                        <div className="mb-2 flex items-center justify-between">
+                          <p className="m-0 text-sm font-semibold text-slate-800">授权账号 (app_id)</p>
+                          <span className="text-xs text-slate-500">已选 {wizardSelectedAppIds.length} 项</span>
+                        </div>
+                        <input
+                          className="input-base"
+                          placeholder="搜索 app_id / name"
+                          value={wizardCredentialSearch}
+                          onChange={(e) => setWizardCredentialSearch(e.target.value)}
+                          disabled={!wizardPlatform}
+                        />
+                        <div className="mt-3 flex items-center justify-between text-sm text-slate-600">
+                          <label className="inline-flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-slate-300 text-[#0000E1] focus:ring-[#0000E1]"
+                              checked={filteredWizardCredentialOptions.length > 0 && selectedFilteredCredentialCount === filteredWizardCredentialOptions.length}
+                              ref={(el) => {
+                                if (!el) return
+                                el.indeterminate = selectedFilteredCredentialCount > 0 && selectedFilteredCredentialCount < filteredWizardCredentialOptions.length
+                              }}
+                              onChange={(e) => {
+                                const checked = e.target.checked
+                                const visibleIds = filteredWizardCredentialOptions.map((x) => x.appId)
+                                setWizardSelectedAppIds((prev) => {
+                                  if (checked) return Array.from(new Set([...prev, ...visibleIds]))
+                                  const visible = new Set(visibleIds)
+                                  return prev.filter((x) => !visible.has(x))
+                                })
+                              }}
+                              disabled={!wizardPlatform || filteredWizardCredentialOptions.length === 0}
+                            />
+                            <span>
+                              {wizardCredentialSearch.trim()
+                                ? `全选搜索结果 (${filteredWizardCredentialOptions.length} 项)`
+                                : `全选 (共 ${filteredWizardCredentialOptions.length} 项)`}
+                            </span>
+                          </label>
+                        </div>
+                        <div className="mt-2 max-h-[180px] space-y-1 overflow-auto rounded-lg border border-slate-100 bg-[#F0EFEC] p-2">
+                          {filteredWizardCredentialOptions.map((item) => (
+                            <label key={item.appId} className="flex items-center gap-2 rounded-md px-1 py-1 text-sm text-slate-700 hover:bg-[#E7E6E2]">
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-slate-300 text-[#0000E1] focus:ring-[#0000E1]"
+                                checked={wizardSelectedAppIds.includes(item.appId)}
+                                onChange={(e) => {
+                                  const checked = e.target.checked
+                                  setWizardSelectedAppIds((prev) => {
+                                    if (checked) return prev.includes(item.appId) ? prev : [...prev, item.appId]
+                                    return prev.filter((x) => x !== item.appId)
+                                  })
+                                }}
+                              />
+                              <span className="mono-ui">{item.label}</span>
+                            </label>
+                          ))}
+                          {filteredWizardCredentialOptions.length === 0 && (
+                            <p className="m-0 text-xs text-slate-400">{wizardPlatform ? "当前平台暂无可选凭证" : "请先选择平台"}</p>
+                          )}
                         </div>
                       </div>
 
@@ -3869,7 +3982,8 @@ function App() {
                       <div className="sticky bottom-0 z-10 -mx-6 border-t border-slate-100 bg-[#F0EFEC]/95 px-6 py-3 backdrop-blur">
                         <div className="flex items-center justify-between gap-3">
                           <div className="text-xs text-slate-500">
-                            已开启 <span className="font-semibold text-slate-700">{wizardCheckedStreamCount}</span> 个接口流，保存后将按接口原始 JSON 直接入库。
+                            已选 <span className="font-semibold text-slate-700">{wizardSelectedAppIds.length}</span> 个授权账号，
+                            已开启 <span className="font-semibold text-slate-700">{wizardCheckedStreamCount}</span> 个接口流。
                           </div>
                           <button
                             className="cxm-ok px-5 py-2 disabled:opacity-50"

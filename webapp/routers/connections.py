@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from webapp.deps import require_db
 from webapp.db import get_db
-from webapp.error_messages import PLATFORM_CODE_REQUIRED, PROJECT_NOT_FOUND, platform_not_registered
+from webapp.error_messages import APP_IDS_EMPTY, PLATFORM_CODE_REQUIRED, PROJECT_NOT_FOUND, platform_not_registered
 from webapp.models import PlatformAccount
 from webapp.schemas import (
     SyncConnectionBatchDeleteRequest,
@@ -26,6 +26,8 @@ from webapp.schemas import (
     SyncExecutionInstanceView,
     StreamPreviewResponse,
     SyncProjectCreateRequest,
+    SyncProjectAppIdsUpdateRequest,
+    SyncProjectReadinessResponse,
     SyncProjectView,
     SyncStreamTaskBatchCreateRequest,
     SyncStreamTaskView,
@@ -40,6 +42,7 @@ from webapp.services.connections import (
     add_stream_tasks,
     create_connection,
     create_project,
+    update_project_app_ids,
     delete_connections_batch,
     get_project,
     list_connections,
@@ -48,6 +51,7 @@ from webapp.services.connections import (
     get_stream_preview,
     project_app_ids,
     project_to_view,
+    evaluate_project_readiness,
     list_stream_tasks,
     submit_backfill,
     submit_routine,
@@ -142,6 +146,30 @@ def get_project_api(project_id: int, db: Session | None = Depends(get_db)) -> Sy
     db = require_db(db, detail="Database is disabled. Connection APIs are unavailable.")
     project = _must_get_project(db, project_id)
     return project_to_view(project)
+
+
+@router.put("/projects/{project_id}/app-ids", response_model=SyncProjectView)
+def update_project_app_ids_api(
+    project_id: int,
+    request: SyncProjectAppIdsUpdateRequest,
+    db: Session | None = Depends(get_db),
+) -> SyncProjectView:
+    db = require_db(db, detail="Database is disabled. Connection APIs are unavailable.")
+    project = _must_get_project(db, project_id)
+    try:
+        return update_project_app_ids(db, project=project, app_ids=request.app_ids)
+    except ValueError as exc:
+        detail = str(exc).strip()
+        if detail == APP_IDS_EMPTY:
+            raise HTTPException(status_code=400, detail=APP_IDS_EMPTY) from exc
+        raise HTTPException(status_code=400, detail=detail or APP_IDS_EMPTY) from exc
+
+
+@router.get("/projects/{project_id}/readiness", response_model=SyncProjectReadinessResponse)
+def get_project_readiness_api(project_id: int, db: Session | None = Depends(get_db)) -> SyncProjectReadinessResponse:
+    db = require_db(db, detail="Database is disabled. Connection APIs are unavailable.")
+    project = _must_get_project(db, project_id)
+    return evaluate_project_readiness(db, project=project)
 
 
 @router.get("/projects/{project_id}/streams", response_model=list[SyncStreamTaskView])

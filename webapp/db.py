@@ -109,6 +109,37 @@ def ensure_schema_upgrade() -> None:
             ")"
         )
 
+    if "alert_channels" not in inspector.get_table_names():
+        statements.append(
+            "CREATE TABLE alert_channels ("
+            "id INTEGER PRIMARY KEY, "
+            "name VARCHAR(128) NOT NULL, "
+            "channel_type VARCHAR(32) NOT NULL DEFAULT 'webhook', "
+            "status VARCHAR(32) NOT NULL DEFAULT 'active', "
+            "config_json TEXT NOT NULL DEFAULT '{}', "
+            "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+            "updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"
+            ")"
+        )
+
+    if "alert_events" not in inspector.get_table_names():
+        statements.append(
+            "CREATE TABLE alert_events ("
+            "id INTEGER PRIMARY KEY, "
+            "project_id INTEGER, "
+            "stream_task_id INTEGER, "
+            "execution_id INTEGER, "
+            "severity VARCHAR(16) NOT NULL DEFAULT 'ERROR', "
+            "title VARCHAR(256) NOT NULL DEFAULT '', "
+            "message TEXT NOT NULL DEFAULT '', "
+            "status VARCHAR(32) NOT NULL DEFAULT 'pending', "
+            "delivery_error TEXT NOT NULL DEFAULT '', "
+            "payload_json TEXT NOT NULL DEFAULT '{}', "
+            "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+            "notified_at DATETIME"
+            ")"
+        )
+
     if not statements:
         return
 

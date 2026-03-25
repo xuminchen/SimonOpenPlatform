@@ -243,3 +243,37 @@ class PlatformApiStream(Base):
         onupdate=datetime.utcnow,
         nullable=False,
     )
+
+
+class AlertChannel(Base):
+    __tablename__ = "alert_channels"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    channel_type: Mapped[str] = mapped_column(String(32), nullable=False, default="webhook", index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active", index=True)
+    config_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+
+class AlertEvent(Base):
+    __tablename__ = "alert_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    project_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    stream_task_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    execution_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False, default="ERROR", index=True)
+    title: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
+    delivery_error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

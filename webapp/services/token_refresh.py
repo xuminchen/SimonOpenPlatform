@@ -407,6 +407,35 @@ def refresh_account_token_if_needed(db: Session, account: PlatformAccount) -> tu
     return True, "refreshed"
 
 
+def _mark_account_token_refresh_failed(db: Session, account: PlatformAccount, error_message: str) -> bool:
+    try:
+        config = decode_account_config(account)
+    except Exception:
+        return False
+    if not isinstance(config, dict):
+        return False
+
+    token_cfg = _get_token_config(config)
+    now = _now_utc()
+    next_token = dict(token_cfg)
+    next_token["managed_by"] = "system"
+    next_token["token_status"] = "refresh_failed"
+    next_token["last_refresh_at"] = now.isoformat()
+    next_token["last_error"] = str(error_message or "").strip()[:500]
+    config["token"] = next_token
+
+    account.config_encrypted = encrypt_text(json.dumps(config, ensure_ascii=False))
+    db.add(account)
+    db.commit()
+    db.refresh(account)
+    sync_account_to_credentials_file(
+        platform=account.platform,
+        account_name=account.name,
+        config=config,
+    )
+    return True
+
+
 def refresh_managed_tokens_once(db: Session) -> dict[str, int]:
     summary = {"total": 0, "refreshed": 0, "skipped": 0, "failed": 0}
     all_accounts = db.query(PlatformAccount).order_by(PlatformAccount.id.asc()).all()
@@ -427,5 +456,10 @@ def refresh_managed_tokens_once(db: Session) -> dict[str, int]:
             summary["failed"] += 1
             print("token-refresh failed account_id={0} err={1}".format(account.id, exc))
             db.rollback()
+            try:
+                _mark_account_token_refresh_failed(db, account, str(exc))
+            except Exception as mark_exc:
+                db.rollback()
+                print("token-refresh failed status update account_id={0} err={1}".format(account.id, mark_exc))
 
     return summary

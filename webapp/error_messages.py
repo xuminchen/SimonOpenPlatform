@@ -14,6 +14,7 @@ ONLY_MANAGED_LOCAL_DESTINATION_SUPPORTS_FILE_EXPLORER = "Only managed local dest
 INVALID_FILE_NAME = "invalid file name"
 FILE_NOT_FOUND = "file not found"
 INVALID_FILE_PATH = "invalid file path"
+ALERT_CHANNEL_NOT_FOUND = "Alert channel not found"
 CREDENTIAL_SOURCE_ITEM_NOT_FOUND = "Credential source item not found"
 TOKEN_REFRESH_NOT_SUPPORTED = "更新失败：当前平台不支持 Token 强制更新"
 

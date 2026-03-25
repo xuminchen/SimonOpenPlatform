@@ -16,6 +16,7 @@ from webapp.config import get_storage_root
 from webapp.db import SessionLocal
 from webapp.json_helpers import safe_json_dict
 from webapp.models import (
+    AlertChannel,
     DestinationProfile,
     PlatformAccount,
     SyncExecutionInstance,
@@ -32,14 +33,18 @@ from webapp.schemas import (
     SyncExecutionSubmitBackfillRequest,
     SyncExecutionSubmitRoutineRequest,
     SyncExecutionInstanceView,
+    SyncProjectReadinessResponse,
+    ProjectReadinessCheck,
     SyncProjectCreateRequest,
     SyncProjectView,
     SyncStreamTaskBatchCreateRequest,
     SyncStreamTaskView,
 )
+from webapp.services.alerts import emit_execution_failure_alert
 from webapp.services.accounts import decode_account_config
-from webapp.services.connection_connectors import get_connector
+from webapp.services.connection_connectors import get_connector, test_connection_with_latency_ms
 from webapp.services.credential_source import find_credential_entry_by_app_id
+from webapp.services.platform_configs import list_platform_configs
 
 
 EXECUTION_TYPE_ROUTINE = "ROUTINE"
@@ -299,6 +304,149 @@ def project_to_view(item: SyncProject) -> SyncProjectView:
     return _to_project_view(item)
 
 
+def _basic_cron_valid(expr: str) -> bool:
+    value = str(expr or "").strip()
+    if not value:
+        return False
+    parts = value.split()
+    return len(parts) in {5, 6}
+
+
+def evaluate_project_readiness(db: Session, *, project: SyncProject) -> SyncProjectReadinessResponse:
+    checks: list[ProjectReadinessCheck] = []
+
+    def _push_check(*, key: str, label: str, status: str, message: str, detail: dict[str, Any] | None = None) -> None:
+        checks.append(
+            ProjectReadinessCheck(
+                key=key,
+                label=label,
+                status=status,
+                message=message,
+                detail=detail if isinstance(detail, dict) else {},
+            )
+        )
+
+    platform_code = str(project.platform_code or "").strip().lower()
+    supported_platforms = {
+        str(item.get("platform", "")).strip().lower()
+        for item in list_platform_configs()
+        if isinstance(item, dict)
+    }
+    platform_ok = bool(platform_code) and platform_code in supported_platforms
+    _push_check(
+        key="platform_registered",
+        label="平台注册有效性",
+        status="PASS" if platform_ok else "FAIL",
+        message="平台已注册" if platform_ok else "平台未注册或编码为空",
+        detail={"platform_code": platform_code, "registered_platform_count": len(supported_platforms)},
+    )
+
+    streams = (
+        db.query(SyncStreamTask)
+        .filter(SyncStreamTask.project_id == project.id)
+        .order_by(SyncStreamTask.id.asc())
+        .all()
+    )
+    stream_count = len(streams)
+    _push_check(
+        key="stream_configured",
+        label="Stream 配置完整性",
+        status="PASS" if stream_count > 0 else "FAIL",
+        message="已配置 {0} 个 stream".format(stream_count) if stream_count > 0 else "未配置任何 stream",
+        detail={"stream_count": stream_count},
+    )
+
+    incremental_missing_cursor = [
+        item.stream_name
+        for item in streams
+        if str(item.sync_mode or "").strip().upper() == "INCREMENTAL" and not str(item.cursor_field or "").strip()
+    ]
+    _push_check(
+        key="incremental_cursor",
+        label="增量游标校验",
+        status="PASS" if not incremental_missing_cursor else "FAIL",
+        message="增量 stream 游标配置完整" if not incremental_missing_cursor else "存在未配置游标的增量 stream",
+        detail={"missing_cursor_streams": incremental_missing_cursor},
+    )
+
+    schedule_ok = _basic_cron_valid(project.schedule_cron)
+    _push_check(
+        key="project_schedule",
+        label="项目调度表达式",
+        status="PASS" if schedule_ok else "FAIL",
+        message="调度表达式有效" if schedule_ok else "调度表达式无效",
+        detail={"schedule_cron": str(project.schedule_cron or "")},
+    )
+
+    destination_name = str(project.destination or "").strip()
+    destination_profile = (
+        db.query(DestinationProfile)
+        .filter(DestinationProfile.name == destination_name)
+        .order_by(DestinationProfile.id.desc())
+        .first()
+    )
+    destination_exists = destination_profile is not None
+    destination_active = destination_exists and str(destination_profile.status or "").strip().lower() == "active"
+    destination_status = "PASS" if destination_active else ("WARN" if destination_exists else "FAIL")
+    destination_message = (
+        "目标配置存在且为 active"
+        if destination_active
+        else ("目标配置存在但状态非 active" if destination_exists else "目标配置不存在")
+    )
+    _push_check(
+        key="destination_profile",
+        label="目标配置可用性",
+        status=destination_status,
+        message=destination_message,
+        detail={
+            "destination": destination_name,
+            "destination_type": str(destination_profile.destination_type or "") if destination_profile else "",
+            "destination_status": str(destination_profile.status or "") if destination_profile else "",
+        },
+    )
+
+    credential = _resolve_project_credential(db, project)
+    connector = get_connector(platform_code)
+    credential_ok = False
+    latency_ms = 0
+    if isinstance(credential, dict) and credential:
+        credential_ok, latency_ms = test_connection_with_latency_ms(connector, credential)
+    _push_check(
+        key="credential_connectivity",
+        label="凭证连通性",
+        status="PASS" if credential_ok else "FAIL",
+        message="凭证可用" if credential_ok else "凭证缺失或连通性校验失败",
+        detail={
+            "credential_id": project.credential_id,
+            "app_ids": _project_app_ids(project),
+            "latency_ms": latency_ms,
+        },
+    )
+
+    active_alert_channels = (
+        db.query(AlertChannel)
+        .filter(AlertChannel.status == "active")
+        .order_by(AlertChannel.id.asc())
+        .all()
+    )
+    _push_check(
+        key="alert_channel",
+        label="告警通道可用性",
+        status="PASS" if active_alert_channels else "WARN",
+        message="存在可用告警通道" if active_alert_channels else "未配置 active 告警通道",
+        detail={"active_channel_count": len(active_alert_channels)},
+    )
+
+    ready = all(item.status != "FAIL" for item in checks)
+    return SyncProjectReadinessResponse(
+        project_id=project.id,
+        project_name=project.name,
+        ready=ready,
+        generated_at=_now_utc(),
+        checks=checks,
+    )
+
+
 def _to_stream_task_view(item: SyncStreamTask) -> SyncStreamTaskView:
     return SyncStreamTaskView(
         id=item.id,
@@ -396,6 +544,32 @@ def create_project(db: Session, request: SyncProjectCreateRequest) -> SyncProjec
     db.commit()
     db.refresh(item)
     return _to_project_view(item)
+
+
+def update_project_app_ids(
+    db: Session,
+    *,
+    project: SyncProject,
+    app_ids: list[str],
+) -> SyncProjectView:
+    normalized_app_ids = _normalize_app_ids(app_ids)
+    if not normalized_app_ids:
+        raise ValueError("app_ids is empty")
+
+    resolved_app_id = _resolve_project_app_id(
+        db,
+        credential_id=project.credential_id,
+        app_id=normalized_app_ids[0] if normalized_app_ids else project.app_id,
+    )
+    if resolved_app_id and not normalized_app_ids:
+        normalized_app_ids = [resolved_app_id]
+
+    project.app_id = normalized_app_ids[0] if normalized_app_ids else resolved_app_id
+    project.app_ids_json = json.dumps(normalized_app_ids, ensure_ascii=False)
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+    return _to_project_view(project)
 
 
 def list_stream_tasks(db: Session, project_id: int) -> list[SyncStreamTaskView]:
@@ -794,6 +968,17 @@ def _run_execution_instance(execution_id: int) -> None:
                 stream.last_routine_status = STATUS_FAILED
                 stream.last_routine_finished_at = _now_utc()
                 db.add(stream)
+            try:
+                emit_execution_failure_alert(
+                    db,
+                    project=project,
+                    stream=stream,
+                    execution=execution,
+                    error_message=connector_failure,
+                    payload={"result": result, "reason": "upstream_all_failed"},
+                )
+            except Exception as alert_exc:  # pragma: no cover - alert side effects
+                _LOGGER.warning("emit execution alert failed execution_id=%s error=%s", execution.id, alert_exc)
             db.add(execution)
             return
 
@@ -842,12 +1027,25 @@ def _run_execution_instance(execution_id: int) -> None:
             execution.status = STATUS_FAILED
             execution.error_message = str(exc)
             execution.result_payload = "{}"
+            project = db.get(SyncProject, execution.project_id)
             if execution.execution_type == EXECUTION_TYPE_ROUTINE and execution.stream_task_id:
                 stream = db.get(SyncStreamTask, execution.stream_task_id)
                 if stream is not None:
                     stream.last_routine_status = STATUS_FAILED
                     stream.last_routine_finished_at = _now_utc()
                     db.add(stream)
+                    if project is not None:
+                        try:
+                            emit_execution_failure_alert(
+                                db,
+                                project=project,
+                                stream=stream,
+                                execution=execution,
+                                error_message=str(exc),
+                                payload={"reason": "runtime_exception"},
+                            )
+                        except Exception as alert_exc:  # pragma: no cover - alert side effects
+                            _LOGGER.warning("emit execution alert failed execution_id=%s error=%s", execution.id, alert_exc)
             db.add(execution)
     finally:
         execution = db.get(SyncExecutionInstance, execution_id)

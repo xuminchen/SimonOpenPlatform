@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -198,6 +198,8 @@ def scan_credential_source_api(
             has_provider_secret = False
             access_token = ""
             refresh_token = ""
+            token_status = ""
+            token_updated_at = ""
             try:
                 cfg = decode_account_config(account)
                 provider_app_id = str(cfg.get("app_id", "")).strip()
@@ -208,6 +210,8 @@ def scan_credential_source_api(
                 if isinstance(token_block, dict):
                     access_token = str(token_block.get("access_token", "")).strip()
                     refresh_token = str(token_block.get("refresh_token", "")).strip()
+                    token_status = str(token_block.get("token_status", "")).strip()
+                    token_updated_at = str(token_block.get("last_refresh_at", "")).strip() or str(token_block.get("synced_at", "")).strip()
                     has_access_token = bool(access_token)
                 if not has_access_token:
                     access_token = str(cfg.get("access_token", "")).strip() or str(cfg.get("advertiser_access_token", "")).strip()
@@ -228,8 +232,8 @@ def scan_credential_source_api(
                     "has_access_token": has_access_token,
                     "access_token": access_token or None,
                     "refresh_token": refresh_token or None,
-                    "token_status": "ready" if has_access_token else "missing",
-                    "token_updated_at": None,
+                    "token_status": token_status or ("ready" if has_access_token else "missing"),
+                    "token_updated_at": token_updated_at or None,
                 }
             )
 
@@ -371,6 +375,31 @@ def refresh_credential_source_token_api(request: CredentialSourceTokenRefreshReq
     return _refresh_credential_source_token_by_app_id(str(request.app_id).strip())
 
 
+def _mark_credential_source_token_refresh_failed(
+    *,
+    platform: str,
+    account_name: str,
+    app_id: str,
+    config: dict[str, object],
+    reason: str,
+) -> None:
+    next_config = dict(config) if isinstance(config, dict) else {}
+    token_block = next_config.get("token")
+    if not isinstance(token_block, dict):
+        token_block = {}
+
+    token_block["token_status"] = "refresh_failed"
+    token_block["last_refresh_at"] = datetime.now(timezone.utc).isoformat()
+    token_block["last_error"] = str(reason or "").strip()[:500]
+    next_config["token"] = token_block
+    next_config["app_id"] = app_id
+    sync_account_to_credentials_file(
+        platform=platform,
+        account_name=account_name,
+        config=next_config,
+    )
+
+
 def _refresh_credential_source_token_by_app_id(app_id: str) -> CredentialSourceTokenRefreshResponse:
     app_id = str(app_id).strip()
     if not app_id:
@@ -392,9 +421,29 @@ def _refresh_credential_source_token_by_app_id(app_id: str) -> CredentialSourceT
     try:
         refreshed_config, status = bootstrap_tokens_for_config(normalized_platform, current_config)
     except Exception as exc:
+        try:
+            _mark_credential_source_token_refresh_failed(
+                platform=normalized_platform,
+                account_name=current.name,
+                app_id=app_id,
+                config=current_config,
+                reason=str(exc),
+            )
+        except Exception:
+            pass
         raise HTTPException(status_code=502, detail=token_refresh_failed(str(exc))) from exc
 
     if status != "refreshed":
+        try:
+            _mark_credential_source_token_refresh_failed(
+                platform=normalized_platform,
+                account_name=current.name,
+                app_id=app_id,
+                config=current_config,
+                reason=str(status),
+            )
+        except Exception:
+            pass
         raise HTTPException(status_code=400, detail=token_refresh_failed(str(status)))
 
     sync_account_to_credentials_file(

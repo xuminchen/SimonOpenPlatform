@@ -426,6 +426,60 @@ class StorageRetentionRunSummary(BaseModel):
     message: str = ""
 
 
+class AlertChannelCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    channel_type: str = Field(default="webhook", min_length=1, max_length=32)
+    status: str = Field(default="active", min_length=1, max_length=32)
+    config: Dict[str, Any] = Field(default_factory=dict)
+
+
+class AlertChannelUpdateRequest(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    channel_type: Optional[str] = Field(default=None, min_length=1, max_length=32)
+    status: Optional[str] = Field(default=None, min_length=1, max_length=32)
+    config: Optional[Dict[str, Any]] = None
+
+
+class AlertChannelView(BaseModel):
+    id: int
+    name: str
+    channel_type: str
+    status: str
+    config: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+
+
+class AlertChannelTestResponse(BaseModel):
+    success: bool
+    message: str
+
+
+class AlertChannelTestRequest(BaseModel):
+    channel_type: str = Field(default="webhook", min_length=1, max_length=32)
+    config: Dict[str, Any] = Field(default_factory=dict)
+
+
+class AlertEventView(BaseModel):
+    id: int
+    project_id: Optional[int] = None
+    stream_task_id: Optional[int] = None
+    execution_id: Optional[int] = None
+    severity: str
+    title: str
+    message: str
+    status: str
+    delivery_error: str = ""
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    notified_at: Optional[datetime] = None
+
+
+class AlertEventListResponse(BaseModel):
+    total: int
+    events: list[AlertEventView] = Field(default_factory=list)
+
+
 class SyncProjectCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=128)
     platform_code: str = Field(..., min_length=1, max_length=64)
@@ -449,6 +503,26 @@ class SyncProjectView(BaseModel):
     status: int
     created_at: datetime
     updated_at: datetime
+
+
+class SyncProjectAppIdsUpdateRequest(BaseModel):
+    app_ids: list[str] = Field(default_factory=list)
+
+
+class ProjectReadinessCheck(BaseModel):
+    key: str
+    label: str
+    status: str
+    message: str
+    detail: Dict[str, Any] = Field(default_factory=dict)
+
+
+class SyncProjectReadinessResponse(BaseModel):
+    project_id: int
+    project_name: str
+    ready: bool
+    generated_at: datetime
+    checks: list[ProjectReadinessCheck] = Field(default_factory=list)
 
 
 class SyncStreamTaskCreate(BaseModel):

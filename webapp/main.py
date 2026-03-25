@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from webapp.db import Base, DB_ENABLED, engine, ensure_schema_upgrade
 from webapp.routers.accounts import router as accounts_router
+from webapp.routers.alerts import router as alerts_router
 from webapp.routers.builder import router as builder_router
 from webapp.routers.connections import router as connections_router
 from webapp.routers.destinations import router as destinations_router
@@ -48,6 +49,7 @@ def _shutdown() -> None:
 
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(accounts_router, prefix="/api/v1")
+app.include_router(alerts_router, prefix="/api/v1")
 app.include_router(platform_configs_router, prefix="/api/v1")
 app.include_router(settings_router, prefix="/api/v1")
 app.include_router(connections_router, prefix="/api/v1")
